@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { BookOpen, Clock, Star, ArrowRight, TrendingUp } from 'lucide-react';
+import { BookOpen, Clock, Star, ArrowRight, TrendingUp, Headphones, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
