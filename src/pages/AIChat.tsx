@@ -1,0 +1,250 @@
+
+import React, { useState } from 'react';
+import { MessageCircle, Mic, MicOff, Send, Upload, Bot, User as UserIcon } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+
+const chatMessages = [
+  {
+    id: 1,
+    type: 'bot',
+    message: 'Hello! I\'m your AI reading assistant. I can help you understand books, answer questions, and provide tutoring. How can I help you today?',
+    timestamp: '10:30 AM'
+  },
+  {
+    id: 2,
+    type: 'user',
+    message: 'Can you explain the main themes in "تاريخ السودان الحديث"?',
+    timestamp: '10:32 AM'
+  },
+  {
+    id: 3,
+    type: 'bot',
+    message: 'The main themes in "تاريخ السودان الحديث" include:\n\n1. **Colonial Resistance** - The various movements against colonial rule\n2. **Cultural Identity** - How Sudanese culture evolved during modern times\n3. **Political Development** - The transition from colonial to independent governance\n4. **Social Transformation** - Changes in society during the modern period\n\nWould you like me to elaborate on any of these themes?',
+    timestamp: '10:33 AM'
+  }
+];
+
+export const AIChat = () => {
+  const [message, setMessage] = useState('');
+  const [isVoiceMode, setIsVoiceMode] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+
+  const handleSendMessage = () => {
+    if (message.trim()) {
+      console.log('Sending message:', message);
+      setMessage('');
+    }
+  };
+
+  const toggleVoiceMode = () => {
+    setIsVoiceMode(!isVoiceMode);
+    setIsListening(false);
+  };
+
+  const toggleListening = () => {
+    setIsListening(!isListening);
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+      {/* Chat Interface */}
+      <div className="lg:col-span-2 flex flex-col">
+        <Card className="border-stone-200 flex-1 flex flex-col">
+          <CardHeader className="border-b border-stone-200">
+            <CardTitle className="text-stone-800 flex items-center gap-2">
+              <Bot className="w-5 h-5 text-emerald-600" />
+              AI Reading Assistant
+              {isVoiceMode && (
+                <span className="text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                  Voice Mode
+                </span>
+              )}
+            </CardTitle>
+          </CardHeader>
+          
+          <CardContent className="flex-1 flex flex-col p-0">
+            {/* Messages */}
+            <div className="flex-1 p-6 space-y-4 overflow-y-auto max-h-96">
+              {chatMessages.map((msg) => (
+                <div key={msg.id} className={`flex gap-3 ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {msg.type === 'bot' && (
+                    <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center flex-shrink-0">
+                      <Bot className="w-4 h-4 text-emerald-600" />
+                    </div>
+                  )}
+                  
+                  <div className={`max-w-lg ${msg.type === 'user' ? 'order-first' : ''}`}>
+                    <div className={`p-3 rounded-lg ${
+                      msg.type === 'user' 
+                        ? 'bg-emerald-600 text-white' 
+                        : 'bg-stone-100 text-stone-800'
+                    }`}>
+                      <p className="whitespace-pre-line">{msg.message}</p>
+                    </div>
+                    <p className="text-xs text-stone-500 mt-1 px-3">
+                      {msg.timestamp}
+                    </p>
+                  </div>
+                  
+                  {msg.type === 'user' && (
+                    <div className="w-8 h-8 bg-stone-200 rounded-full flex items-center justify-center flex-shrink-0">
+                      <UserIcon className="w-4 h-4 text-stone-600" />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            
+            {/* Input Area */}
+            <div className="border-t border-stone-200 p-4 space-y-3">
+              {isVoiceMode ? (
+                <div className="flex items-center justify-center p-8">
+                  <Button
+                    onClick={toggleListening}
+                    className={`w-20 h-20 rounded-full ${
+                      isListening 
+                        ? 'bg-red-600 hover:bg-red-700 animate-pulse' 
+                        : 'bg-emerald-600 hover:bg-emerald-700'
+                    }`}
+                  >
+                    <Mic className="w-8 h-8" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Textarea
+                    placeholder="Ask me anything about your books..."
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    className="flex-1 min-h-[60px] resize-none"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
+                    }}
+                  />
+                  <div className="flex flex-col gap-2">
+                    <Button onClick={handleSendMessage} disabled={!message.trim()}>
+                      <Send className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+              
+              <div className="flex items-center justify-between">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={toggleVoiceMode}
+                  className={isVoiceMode ? 'bg-blue-50 border-blue-200 text-blue-700' : ''}
+                >
+                  {isVoiceMode ? <MicOff className="w-4 h-4 mr-2" /> : <Mic className="w-4 h-4 mr-2" />}
+                  {isVoiceMode ? 'Exit Voice Mode' : 'Voice Mode'}
+                </Button>
+                
+                {isListening && (
+                  <span className="text-sm text-red-600 font-medium">
+                    Listening... Speak now
+                  </span>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Sidebar */}
+      <div className="space-y-6">
+        {/* Quick Actions */}
+        <Card className="border-stone-200">
+          <CardHeader>
+            <CardTitle className="text-stone-800">Quick Actions</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button variant="outline" className="w-full justify-start">
+              <Upload className="w-4 h-4 mr-2" />
+              Upload Book for Chat
+            </Button>
+            
+            <Button variant="outline" className="w-full justify-start">
+              <MessageCircle className="w-4 h-4 mr-2" />
+              Start New Conversation
+            </Button>
+            
+            <Button variant="outline" className="w-full justify-start">
+              <Mic className="w-4 h-4 mr-2" />
+              Voice Tutor Session
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Conversation History */}
+        <Card className="border-stone-200">
+          <CardHeader>
+            <CardTitle className="text-stone-800">Recent Conversations</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="p-3 bg-stone-50 rounded-lg cursor-pointer hover:bg-stone-100 transition-colors">
+              <p className="text-sm font-medium text-stone-800 mb-1">
+                تاريخ السودان الحديث
+              </p>
+              <p className="text-xs text-stone-600">
+                Discussion about colonial resistance
+              </p>
+              <p className="text-xs text-stone-500 mt-1">2 hours ago</p>
+            </div>
+            
+            <div className="p-3 bg-stone-50 rounded-lg cursor-pointer hover:bg-stone-100 transition-colors">
+              <p className="text-sm font-medium text-stone-800 mb-1">
+                الأدب السوداني المعاصر
+              </p>
+              <p className="text-xs text-stone-600">
+                Analysis of modern poetry themes
+              </p>
+              <p className="text-xs text-stone-500 mt-1">1 day ago</p>
+            </div>
+            
+            <div className="p-3 bg-stone-50 rounded-lg cursor-pointer hover:bg-stone-100 transition-colors">
+              <p className="text-sm font-medium text-stone-800 mb-1">
+                جغرافية السودان
+              </p>
+              <p className="text-xs text-stone-600">
+                Questions about climate regions
+              </p>
+              <p className="text-xs text-stone-500 mt-1">3 days ago</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* AI Features */}
+        <Card className="border-stone-200">
+          <CardHeader>
+            <CardTitle className="text-stone-800">AI Features</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-stone-600">
+            <div className="flex items-start gap-2">
+              <div className="w-2 h-2 bg-emerald-600 rounded-full mt-2 flex-shrink-0"></div>
+              <p>Ask questions about any book in your library</p>
+            </div>
+            <div className="flex items-start gap-2">
+              <div className="w-2 h-2 bg-emerald-600 rounded-full mt-2 flex-shrink-0"></div>
+              <p>Get summaries and explanations</p>
+            </div>
+            <div className="flex items-start gap-2">
+              <div className="w-2 h-2 bg-emerald-600 rounded-full mt-2 flex-shrink-0"></div>
+              <p>Voice conversations and tutoring</p>
+            </div>
+            <div className="flex items-start gap-2">
+              <div className="w-2 h-2 bg-emerald-600 rounded-full mt-2 flex-shrink-0"></div>
+              <p>Upload new books for instant analysis</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+};
