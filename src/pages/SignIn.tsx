@@ -8,8 +8,8 @@ export const SignInPage = () => {
   return (
     <div className="min-h-screen bg-stone-50 flex">
       {/* Left side - Authentication */}
-      <div className="flex-1 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-20 xl:px-24">
-        <div className="mx-auto w-full max-w-sm">
+      <div className="flex-1 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-20 xl:px-24 max-w-2xl">
+        <div className="mx-auto w-full max-w-lg">
           {/* Logo */}
           <div className="flex items-center gap-3 mb-8">
             <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center">
@@ -32,7 +32,7 @@ export const SignInPage = () => {
             appearance={{
               elements: {
                 formButtonPrimary: "bg-emerald-600 hover:bg-emerald-700 text-sm normal-case",
-                card: "shadow-none p-0",
+                card: "shadow-none p-0 w-full",
                 headerTitle: "hidden",
                 headerSubtitle: "hidden",
                 socialButtonsBlockButton: "border-stone-200 hover:bg-stone-50",
@@ -53,7 +53,7 @@ export const SignInPage = () => {
       </div>
 
       {/* Right side - Image */}
-      <div className="hidden lg:block relative w-0 flex-1">
+      <div className="hidden lg:block relative flex-1">
         <img
           className="absolute inset-0 h-full w-full object-cover"
           src="https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80"
