@@ -13,6 +13,8 @@ import { Podcasts } from "./pages/Podcasts";
 import { Uploads } from "./pages/Uploads";
 import { AIChat } from "./pages/AIChat";
 import { Settings } from "./pages/Settings";
+import { SignInPage } from "./pages/SignIn";
+import { SignUpPage } from "./pages/SignUp";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -24,6 +26,8 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
+          <Route path="/sign-in" element={<SignInPage />} />
+          <Route path="/sign-up" element={<SignUpPage />} />
           <Route path="/" element={<ProtectedRoutes />}>
             <Route path="dashboard" element={<Dashboard />} />
             <Route index element={<Dashboard />} />

@@ -1,9 +1,9 @@
 
 import React from 'react';
-import { SignInButton, SignUpButton } from '@clerk/clerk-react';
 import { BookOpen, Star, Clock, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Link } from 'react-router-dom';
 
 export const Landing = () => {
   return (
@@ -18,16 +18,16 @@ export const Landing = () => {
             <span className="text-2xl font-bold text-stone-800">Madarek</span>
           </div>
           <div className="flex items-center gap-4">
-            <SignInButton fallbackRedirectUrl="/dashboard">
+            <Link to="/sign-in">
               <Button variant="ghost" className="text-stone-600 hover:text-stone-800">
                 Sign In
               </Button>
-            </SignInButton>
-            <SignUpButton fallbackRedirectUrl="/dashboard">
+            </Link>
+            <Link to="/sign-up">
               <Button className="bg-emerald-600 hover:bg-emerald-700">
                 Get Started
               </Button>
-            </SignUpButton>
+            </Link>
           </div>
         </div>
       </header>
@@ -42,11 +42,11 @@ export const Landing = () => {
           Discover, read, and learn from the rich collection of Sudanese books, 
           educational content, and podcasts - all in one place.
         </p>
-        <SignUpButton fallbackRedirectUrl="/dashboard">
+        <Link to="/sign-up">
           <Button size="lg" className="bg-emerald-600 hover:bg-emerald-700 text-lg px-8 py-4">
             Start Reading Today
           </Button>
-        </SignUpButton>
+        </Link>
       </section>
 
       {/* Features Section */}
@@ -118,11 +118,11 @@ export const Landing = () => {
         <p className="text-lg text-stone-600 mb-8 max-w-xl mx-auto">
           Join thousands of learners exploring Sudanese culture and knowledge through our digital platform.
         </p>
-        <SignUpButton fallbackRedirectUrl="/dashboard">
+        <Link to="/sign-up">
           <Button size="lg" className="bg-emerald-600 hover:bg-emerald-700 text-lg px-8 py-4">
             Create Your Account
           </Button>
-        </SignUpButton>
+        </Link>
       </section>
 
       {/* Footer */}
