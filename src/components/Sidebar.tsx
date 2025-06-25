@@ -14,7 +14,7 @@ import {
 import { cn } from '@/lib/utils';
 
 const navigation = [
-  { name: 'Dashboard', href: '/', icon: Book },
+  { name: 'Dashboard', href: '/dashboard', icon: Book },
   { name: 'Read Book', href: '/read', icon: BookOpen },
   { name: 'My Library', href: '/library', icon: Library },
   { name: 'My Collections', href: '/collections', icon: List },
@@ -48,7 +48,7 @@ export const Sidebar = () => {
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-2">
         {navigation.map((item) => {
-          const isActive = location.pathname === item.href;
+          const isActive = location.pathname === item.href || (item.href === '/dashboard' && location.pathname === '/');
           return (
             <NavLink
               key={item.name}

@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { Bell, Search } from 'lucide-react';
+import { UserButton } from '@clerk/clerk-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -26,15 +27,13 @@ export const TopNavbar = () => {
             <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"></span>
           </Button>
           
-          <div className="flex items-center gap-3">
-            <div className="text-right">
-              <div className="text-sm font-medium text-stone-800">Ahmed Hassan</div>
-              <div className="text-xs text-stone-500">Premium Member</div>
-            </div>
-            <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center">
-              <span className="text-sm font-medium text-emerald-700">AH</span>
-            </div>
-          </div>
+          <UserButton 
+            appearance={{
+              elements: {
+                avatarBox: "w-8 h-8"
+              }
+            }}
+          />
         </div>
       </div>
     </header>
