@@ -9,7 +9,63 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      books: {
+        Row: {
+          author: string | null
+          category: string | null
+          cover_image_path: string | null
+          created_at: string
+          description: string | null
+          file_path: string | null
+          file_size_mb: number | null
+          id: string
+          isbn: string | null
+          language: string | null
+          page_count: number | null
+          publication_year: number | null
+          status: string | null
+          title: string
+          updated_at: string
+          upload_date: string
+        }
+        Insert: {
+          author?: string | null
+          category?: string | null
+          cover_image_path?: string | null
+          created_at?: string
+          description?: string | null
+          file_path?: string | null
+          file_size_mb?: number | null
+          id?: string
+          isbn?: string | null
+          language?: string | null
+          page_count?: number | null
+          publication_year?: number | null
+          status?: string | null
+          title: string
+          updated_at?: string
+          upload_date?: string
+        }
+        Update: {
+          author?: string | null
+          category?: string | null
+          cover_image_path?: string | null
+          created_at?: string
+          description?: string | null
+          file_path?: string | null
+          file_size_mb?: number | null
+          id?: string
+          isbn?: string | null
+          language?: string | null
+          page_count?: number | null
+          publication_year?: number | null
+          status?: string | null
+          title?: string
+          updated_at?: string
+          upload_date?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

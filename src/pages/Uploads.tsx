@@ -1,90 +1,130 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Upload, FileText, CheckCircle, XCircle, Clock, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { BookUploadDialog } from '@/components/BookUploadDialog';
+import { useToast } from '@/hooks/use-toast';
 
-const uploads = [
-  {
-    id: 1,
-    filename: 'الثقافة_الشعبية_السودانية.pdf',
-    title: 'الثقافة الشعبية السودانية',
-    author: 'محمد أحمد',
-    uploadDate: '2024-01-15',
-    status: 'approved',
-    fileSize: '2.3 MB',
-    pages: 156,
-    processingProgress: 100
-  },
-  {
-    id: 2,
-    filename: 'تاريخ_الخرطوم.pdf',
-    title: 'تاريخ مدينة الخرطوم',
-    author: 'سارة عبدالله',
-    uploadDate: '2024-01-10',
-    status: 'pending',
-    fileSize: '4.1 MB',
-    pages: 203,
-    processingProgress: 65
-  },
-  {
-    id: 3,
-    filename: 'الشعر_الصوفي.pdf',
-    title: 'الشعر الصوفي في السودان',
-    author: 'عبدالرحمن النور',
-    uploadDate: '2024-01-08',
-    status: 'rejected',
-    fileSize: '1.8 MB',
-    pages: 124,
-    processingProgress: 100,
-    rejectionReason: 'Poor scan quality, please re-upload with higher resolution'
-  },
-  {
-    id: 4,
-    filename: 'الاقتصاد_الزراعي.pdf',
-    title: 'الاقتصاد الزراعي في السودان',
-    author: 'أحمد محمد علي',
-    uploadDate: '2024-01-12',
-    status: 'processing',
-    fileSize: '3.7 MB',
-    pages: 189,
-    processingProgress: 45
-  }
-];
+interface Book {
+  id: string;
+  title: string;
+  author: string | null;
+  description: string | null;
+  isbn: string | null;
+  publication_year: number | null;
+  category: string | null;
+  language: string | null;
+  page_count: number | null;
+  file_size_mb: number | null;
+  file_path: string | null;
+  cover_image_path: string | null;
+  status: string | null;
+  upload_date: string;
+  created_at: string;
+}
 
 const getStatusColor = (status: string) => {
   switch (status) {
-    case 'approved': return 'bg-green-100 text-green-800 border-green-200';
-    case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-    case 'rejected': return 'bg-red-100 text-red-800 border-red-200';
+    case 'active': return 'bg-green-100 text-green-800 border-green-200';
     case 'processing': return 'bg-blue-100 text-blue-800 border-blue-200';
+    case 'inactive': return 'bg-red-100 text-red-800 border-red-200';
     default: return 'bg-gray-100 text-gray-800 border-gray-200';
   }
 };
 
 const getStatusIcon = (status: string) => {
   switch (status) {
-    case 'approved': return <CheckCircle className="w-4 h-4" />;
-    case 'pending': return <Clock className="w-4 h-4" />;
-    case 'rejected': return <XCircle className="w-4 h-4" />;
+    case 'active': return <CheckCircle className="w-4 h-4" />;
     case 'processing': return <Clock className="w-4 h-4" />;
+    case 'inactive': return <XCircle className="w-4 h-4" />;
     default: return <FileText className="w-4 h-4" />;
   }
 };
 
+const getStatusText = (status: string) => {
+  switch (status) {
+    case 'active': return 'Active';
+    case 'processing': return 'Processing';
+    case 'inactive': return 'Inactive';
+    default: return 'Unknown';
+  }
+};
+
 export const Uploads = () => {
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const { toast } = useToast();
+
+  const { data: books = [], isLoading, refetch } = useQuery({
+    queryKey: ['books'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('books')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        console.error('Error fetching books:', error);
+        throw error;
+      }
+      
+      return data as Book[];
+    }
+  });
+
+  const handleDeleteBook = async (bookId: string) => {
+    try {
+      const { error } = await supabase
+        .from('books')
+        .delete()
+        .eq('id', bookId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Book deleted successfully",
+      });
+      
+      refetch();
+    } catch (error) {
+      console.error('Error deleting book:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete book",
+        variant: "destructive",
+      });
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mx-auto mb-4"></div>
+          <p className="text-stone-600">Loading books...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-stone-800">My Uploads</h1>
-          <p className="text-stone-600">Track your uploaded books and their status</p>
+          <p className="text-stone-600">Manage your uploaded books and their status</p>
         </div>
         
-        <Button className="bg-emerald-600 hover:bg-emerald-700">
+        <Button 
+          className="bg-emerald-600 hover:bg-emerald-700"
+          onClick={() => setShowUploadDialog(true)}
+        >
           <Upload className="w-4 h-4 mr-2" />
           Upload New Book
         </Button>
@@ -99,25 +139,9 @@ export const Uploads = () => {
                 <CheckCircle className="w-5 h-5 text-green-600" />
               </div>
               <div>
-                <p className="text-sm text-stone-600">Approved</p>
+                <p className="text-sm text-stone-600">Active</p>
                 <p className="text-lg font-semibold text-stone-800">
-                  {uploads.filter(u => u.status === 'approved').length}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-stone-200">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
-                <Clock className="w-5 h-5 text-yellow-600" />
-              </div>
-              <div>
-                <p className="text-sm text-stone-600">Pending</p>
-                <p className="text-lg font-semibold text-stone-800">
-                  {uploads.filter(u => u.status === 'pending').length}
+                  {books.filter(b => b.status === 'active').length}
                 </p>
               </div>
             </div>
@@ -133,7 +157,7 @@ export const Uploads = () => {
               <div>
                 <p className="text-sm text-stone-600">Processing</p>
                 <p className="text-lg font-semibold text-stone-800">
-                  {uploads.filter(u => u.status === 'processing').length}
+                  {books.filter(b => b.status === 'processing').length}
                 </p>
               </div>
             </div>
@@ -147,9 +171,25 @@ export const Uploads = () => {
                 <XCircle className="w-5 h-5 text-red-600" />
               </div>
               <div>
-                <p className="text-sm text-stone-600">Rejected</p>
+                <p className="text-sm text-stone-600">Inactive</p>
                 <p className="text-lg font-semibold text-stone-800">
-                  {uploads.filter(u => u.status === 'rejected').length}
+                  {books.filter(b => b.status === 'inactive').length}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-stone-200">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-stone-100 rounded-lg flex items-center justify-center">
+                <FileText className="w-5 h-5 text-stone-600" />
+              </div>
+              <div>
+                <p className="text-sm text-stone-600">Total Books</p>
+                <p className="text-lg font-semibold text-stone-800">
+                  {books.length}
                 </p>
               </div>
             </div>
@@ -157,10 +197,10 @@ export const Uploads = () => {
         </Card>
       </div>
 
-      {/* Uploads List */}
+      {/* Books List */}
       <div className="space-y-4">
-        {uploads.map((upload) => (
-          <Card key={upload.id} className="border-stone-200">
+        {books.map((book) => (
+          <Card key={book.id} className="border-stone-200">
             <CardContent className="p-6">
               <div className="flex items-start gap-4">
                 <div className="w-12 h-16 bg-gradient-to-br from-stone-400 to-stone-500 rounded flex items-center justify-center flex-shrink-0">
@@ -171,57 +211,60 @@ export const Uploads = () => {
                   <div className="flex items-start justify-between gap-4 mb-3">
                     <div className="flex-1 min-w-0">
                       <h3 className="font-medium text-stone-800 mb-1">
-                        {upload.title}
+                        {book.title}
                       </h3>
                       <p className="text-sm text-stone-600 mb-2">
-                        by {upload.author}
+                        by {book.author || 'Unknown Author'}
                       </p>
-                      <p className="text-xs text-stone-500">
-                        {upload.filename} • {upload.fileSize} • {upload.pages} pages
-                      </p>
+                      <div className="flex flex-wrap gap-2 text-xs text-stone-500">
+                        {book.category && (
+                          <span className="bg-stone-100 px-2 py-1 rounded">
+                            {book.category}
+                          </span>
+                        )}
+                        {book.language && (
+                          <span className="bg-stone-100 px-2 py-1 rounded">
+                            {book.language}
+                          </span>
+                        )}
+                        {book.file_size_mb && (
+                          <span>{book.file_size_mb} MB</span>
+                        )}
+                        {book.page_count && (
+                          <span>{book.page_count} pages</span>
+                        )}
+                      </div>
                     </div>
                     
-                    <Badge className={getStatusColor(upload.status)}>
-                      {getStatusIcon(upload.status)}
-                      <span className="ml-1 capitalize">{upload.status}</span>
+                    <Badge className={getStatusColor(book.status || 'unknown')}>
+                      {getStatusIcon(book.status || 'unknown')}
+                      <span className="ml-1">{getStatusText(book.status || 'unknown')}</span>
                     </Badge>
                   </div>
                   
-                  {upload.status === 'processing' && (
-                    <div className="mb-3">
-                      <div className="flex items-center justify-between text-sm text-stone-600 mb-1">
-                        <span>Processing</span>
-                        <span>{upload.processingProgress}%</span>
-                      </div>
-                      <Progress value={upload.processingProgress} className="h-2" />
-                    </div>
-                  )}
-                  
-                  {upload.status === 'rejected' && upload.rejectionReason && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3">
-                      <p className="text-sm text-red-800">
-                        <strong>Rejection Reason:</strong> {upload.rejectionReason}
-                      </p>
-                    </div>
+                  {book.description && (
+                    <p className="text-sm text-stone-600 mb-3 line-clamp-2">
+                      {book.description}
+                    </p>
                   )}
                   
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-stone-500">
-                      Uploaded on {new Date(upload.uploadDate).toLocaleDateString()}
+                      Uploaded on {new Date(book.upload_date).toLocaleDateString()}
                     </p>
                     
                     <div className="flex gap-2">
-                      {upload.status === 'rejected' && (
-                        <Button variant="outline" size="sm">
-                          Re-upload
-                        </Button>
-                      )}
-                      {upload.status === 'approved' && (
+                      {book.status === 'active' && (
                         <Button variant="outline" size="sm">
                           View Book
                         </Button>
                       )}
-                      <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="text-red-600 hover:text-red-700"
+                        onClick={() => handleDeleteBook(book.id)}
+                      >
                         Delete
                       </Button>
                     </div>
@@ -234,19 +277,29 @@ export const Uploads = () => {
       </div>
 
       {/* Empty State */}
-      {uploads.length === 0 && (
+      {books.length === 0 && (
         <div className="text-center py-12">
           <div className="w-16 h-16 bg-stone-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <Upload className="w-8 h-8 text-stone-400" />
           </div>
-          <h3 className="text-lg font-medium text-stone-800 mb-2">No uploads yet</h3>
+          <h3 className="text-lg font-medium text-stone-800 mb-2">No books uploaded yet</h3>
           <p className="text-stone-600 mb-6">Upload your first book to get started</p>
-          <Button>
+          <Button onClick={() => setShowUploadDialog(true)}>
             <Plus className="w-4 h-4 mr-2" />
             Upload Your First Book
           </Button>
         </div>
       )}
+
+      {/* Upload Dialog */}
+      <BookUploadDialog 
+        open={showUploadDialog}
+        onClose={() => setShowUploadDialog(false)}
+        onSuccess={() => {
+          setShowUploadDialog(false);
+          refetch();
+        }}
+      />
     </div>
   );
 };
