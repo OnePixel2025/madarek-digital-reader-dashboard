@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { Upload } from 'lucide-react';
+import { Upload, FileText } from 'lucide-react';
 
 interface BookUploadDialogProps {
   open: boolean;
@@ -21,14 +21,13 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
     title: '',
     author: '',
     description: '',
-    isbn: '',
     publication_year: '',
     category: '',
     language: 'Arabic',
     page_count: '',
-    file_size_mb: '',
-    status: 'active'
+    file_size_mb: ''
   });
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
@@ -37,6 +36,41 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
       ...prev,
       [field]: value
     }));
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.type !== 'application/pdf') {
+        toast({
+          title: "Error",
+          description: "Please select a PDF file",
+          variant: "destructive",
+        });
+        return;
+      }
+      setSelectedFile(file);
+      // Auto-populate file size
+      const fileSizeMB = (file.size / 1024 / 1024).toFixed(1);
+      setFormData(prev => ({
+        ...prev,
+        file_size_mb: fileSizeMB
+      }));
+    }
+  };
+
+  const uploadFile = async (file: File): Promise<string | null> => {
+    const fileName = `${Date.now()}-${file.name}`;
+    const { data, error } = await supabase.storage
+      .from('books')
+      .upload(fileName, file);
+
+    if (error) {
+      console.error('Error uploading file:', error);
+      throw error;
+    }
+
+    return data.path;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -51,20 +85,32 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
       return;
     }
 
+    if (!selectedFile) {
+      toast({
+        title: "Error",
+        description: "Please select a PDF file to upload",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
+      // Upload the PDF file
+      const filePath = await uploadFile(selectedFile);
+
       const bookData = {
         title: formData.title.trim(),
         author: formData.author.trim() || null,
         description: formData.description.trim() || null,
-        isbn: formData.isbn.trim() || null,
         publication_year: formData.publication_year ? parseInt(formData.publication_year) : null,
         category: formData.category.trim() || null,
         language: formData.language,
         page_count: formData.page_count ? parseInt(formData.page_count) : null,
         file_size_mb: formData.file_size_mb ? parseFloat(formData.file_size_mb) : null,
-        status: formData.status
+        file_path: filePath,
+        status: 'active' // Always set to active for testing
       };
 
       const { error } = await supabase
@@ -75,7 +121,7 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
 
       toast({
         title: "Success",
-        description: "Book added successfully",
+        description: "Book uploaded successfully",
       });
 
       // Reset form
@@ -83,21 +129,20 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
         title: '',
         author: '',
         description: '',
-        isbn: '',
         publication_year: '',
         category: '',
         language: 'Arabic',
         page_count: '',
-        file_size_mb: '',
-        status: 'active'
+        file_size_mb: ''
       });
+      setSelectedFile(null);
 
       onSuccess();
     } catch (error) {
       console.error('Error adding book:', error);
       toast({
         title: "Error",
-        description: "Failed to add book",
+        description: "Failed to upload book",
         variant: "destructive",
       });
     } finally {
@@ -111,7 +156,7 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Upload className="w-5 h-5" />
-            Add New Book
+            Upload New Book
           </DialogTitle>
         </DialogHeader>
 
@@ -150,17 +195,39 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <Label htmlFor="isbn">ISBN</Label>
-              <Input
-                id="isbn"
-                value={formData.isbn}
-                onChange={(e) => handleInputChange('isbn', e.target.value)}
-                placeholder="Enter ISBN"
+          <div>
+            <Label htmlFor="file">PDF File *</Label>
+            <div className="border-2 border-dashed border-stone-300 rounded-lg p-6 text-center">
+              <input
+                id="file"
+                type="file"
+                accept=".pdf,application/pdf"
+                onChange={handleFileChange}
+                className="hidden"
               />
+              <label 
+                htmlFor="file" 
+                className="cursor-pointer flex flex-col items-center gap-2"
+              >
+                <FileText className="w-8 h-8 text-stone-400" />
+                {selectedFile ? (
+                  <div>
+                    <p className="text-sm font-medium text-stone-800">{selectedFile.name}</p>
+                    <p className="text-xs text-stone-500">
+                      {(selectedFile.size / 1024 / 1024).toFixed(1)} MB
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-sm font-medium text-stone-800">Click to upload PDF</p>
+                    <p className="text-xs text-stone-500">PDF files only</p>
+                  </div>
+                )}
+              </label>
             </div>
+          </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <Label htmlFor="publication_year">Publication Year</Label>
               <Input
@@ -181,9 +248,7 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
                 placeholder="e.g., History, Literature"
               />
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <Label htmlFor="language">Language</Label>
               <Select value={formData.language} onValueChange={(value) => handleInputChange('language', value)}>
@@ -198,7 +263,9 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
                 </SelectContent>
               </Select>
             </div>
+          </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="page_count">Page Count</Label>
               <Input
@@ -218,23 +285,10 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
                 step="0.1"
                 value={formData.file_size_mb}
                 onChange={(e) => handleInputChange('file_size_mb', e.target.value)}
-                placeholder="File size in MB"
+                placeholder="Auto-filled when file selected"
+                readOnly
               />
             </div>
-          </div>
-
-          <div>
-            <Label htmlFor="status">Status</Label>
-            <Select value={formData.status} onValueChange={(value) => handleInputChange('status', value)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="processing">Processing</SelectItem>
-                <SelectItem value="inactive">Inactive</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
 
           <div className="flex justify-end gap-3 pt-4">
@@ -242,7 +296,7 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
               Cancel
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Adding...' : 'Add Book'}
+              {isSubmitting ? 'Uploading...' : 'Upload Book'}
             </Button>
           </div>
         </form>
