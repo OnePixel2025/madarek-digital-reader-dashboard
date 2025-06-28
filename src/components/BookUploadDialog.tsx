@@ -60,8 +60,31 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
     }
   };
 
+  const sanitizeFileName = (fileName: string): string => {
+    // Remove or replace problematic characters
+    let sanitized = fileName
+      // Replace Arabic and special characters with safe alternatives
+      .replace(/[^\w\-_.]/g, '_') // Replace non-word characters with underscore
+      .replace(/_{2,}/g, '_') // Replace multiple underscores with single underscore
+      .replace(/^_+|_+$/g, '') // Remove leading/trailing underscores
+      .toLowerCase(); // Convert to lowercase for consistency
+    
+    // Ensure the filename isn't empty after sanitization
+    if (!sanitized || sanitized === '.pdf') {
+      sanitized = 'book_' + Date.now() + '.pdf';
+    }
+    
+    console.log('Original filename:', fileName);
+    console.log('Sanitized filename:', sanitized);
+    
+    return sanitized;
+  };
+
   const uploadFile = async (file: File): Promise<string | null> => {
-    const fileName = `${Date.now()}-${file.name}`;
+    const timestamp = Date.now();
+    const sanitizedName = sanitizeFileName(file.name);
+    const fileName = `${timestamp}-${sanitizedName}`;
+    
     console.log('Uploading file to bucket "books" with name:', fileName);
     
     const { data, error } = await supabase.storage
