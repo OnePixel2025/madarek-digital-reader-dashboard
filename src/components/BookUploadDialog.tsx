@@ -49,6 +49,7 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
         });
         return;
       }
+      console.log('Selected file:', file.name, 'Size:', file.size, 'Type:', file.type);
       setSelectedFile(file);
       // Auto-populate file size
       const fileSizeMB = (file.size / 1024 / 1024).toFixed(1);
@@ -61,15 +62,21 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
 
   const uploadFile = async (file: File): Promise<string | null> => {
     const fileName = `${Date.now()}-${file.name}`;
+    console.log('Uploading file to bucket "books" with name:', fileName);
+    
     const { data, error } = await supabase.storage
       .from('books')
-      .upload(fileName, file);
+      .upload(fileName, file, {
+        cacheControl: '3600',
+        upsert: false
+      });
 
     if (error) {
       console.error('Error uploading file:', error);
       throw error;
     }
 
+    console.log('File uploaded successfully:', data);
     return data.path;
   };
 
@@ -95,10 +102,13 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
     }
 
     setIsSubmitting(true);
+    console.log('Starting book upload process...');
 
     try {
       // Upload the PDF file
+      console.log('Step 1: Uploading PDF file...');
       const filePath = await uploadFile(selectedFile);
+      console.log('File uploaded with path:', filePath);
 
       const bookData = {
         title: formData.title.trim(),
@@ -110,14 +120,22 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
         page_count: formData.page_count ? parseInt(formData.page_count) : null,
         file_size_mb: formData.file_size_mb ? parseFloat(formData.file_size_mb) : null,
         file_path: filePath,
-        status: 'active' // Always set to active for testing
+        status: 'active'
       };
 
-      const { error } = await supabase
-        .from('books')
-        .insert([bookData]);
+      console.log('Step 2: Inserting book data:', bookData);
 
-      if (error) throw error;
+      const { data: insertedBook, error } = await supabase
+        .from('books')
+        .insert([bookData])
+        .select();
+
+      if (error) {
+        console.error('Error inserting book data:', error);
+        throw error;
+      }
+
+      console.log('Book inserted successfully:', insertedBook);
 
       toast({
         title: "Success",
@@ -139,10 +157,10 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
 
       onSuccess();
     } catch (error) {
-      console.error('Error adding book:', error);
+      console.error('Error in upload process:', error);
       toast({
         title: "Error",
-        description: "Failed to upload book",
+        description: error instanceof Error ? error.message : "Failed to upload book",
         variant: "destructive",
       });
     } finally {
