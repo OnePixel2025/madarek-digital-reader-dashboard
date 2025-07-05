@@ -5,104 +5,117 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 
-const filters = [
-  { label: 'All Books', value: 'all', count: 45 },
-  { label: 'In Progress', value: 'progress', count: 8 },
-  { label: 'Completed', value: 'completed', count: 24 },
-  { label: 'Favorites', value: 'favorites', count: 13 },
-];
-
-const books = [
-  {
-    id: 1,
-    title: 'تاريخ السودان الحديث',
-    author: 'محمد عبدالرحيم',
-    progress: 75,
-    status: 'progress',
-    category: 'History',
-    rating: 4.5,
-    cover: 'bg-gradient-to-br from-blue-500 to-blue-600',
-    favorite: true
-  },
-  {
-    id: 2,
-    title: 'الأدب السوداني المعاصر',
-    author: 'فاطمة النور',
-    progress: 100,
-    status: 'completed',
-    category: 'Literature',
-    rating: 4.8,
-    cover: 'bg-gradient-to-br from-emerald-500 to-emerald-600',
-    favorite: false
-  },
-  {
-    id: 3,
-    title: 'جغرافية السودان',
-    author: 'أحمد محمد علي',
-    progress: 45,
-    status: 'progress',
-    category: 'Geography',
-    rating: 4.2,
-    cover: 'bg-gradient-to-br from-purple-500 to-purple-600',
-    favorite: true
-  },
-  {
-    id: 4,
-    title: 'الاقتصاد السوداني',
-    author: 'سارة أحمد',
-    progress: 100,
-    status: 'completed',
-    category: 'Economics',
-    rating: 4.6,
-    cover: 'bg-gradient-to-br from-orange-500 to-orange-600',
-    favorite: false
-  },
-  {
-    id: 5,
-    title: 'الثقافة السودانية',
-    author: 'عبدالله محمد',
-    progress: 20,
-    status: 'progress',
-    category: 'Culture',
-    rating: 4.3,
-    cover: 'bg-gradient-to-br from-teal-500 to-teal-600',
-    favorite: true
-  },
-  {
-    id: 6,
-    title: 'علوم الحاسوب',
-    author: 'نور الدين',
-    progress: 0,
-    status: 'new',
-    category: 'Technology',
-    rating: 4.7,
-    cover: 'bg-gradient-to-br from-indigo-500 to-indigo-600',
-    favorite: false
-  }
-];
+interface Book {
+  id: string;
+  title: string;
+  author: string | null;
+  description: string | null;
+  isbn: string | null;
+  publication_year: number | null;
+  category: string | null;
+  language: string | null;
+  page_count: number | null;
+  file_size_mb: number | null;
+  file_path: string | null;
+  cover_image_path: string | null;
+  status: string | null;
+  upload_date: string;
+  created_at: string;
+}
 
 export const Library = () => {
   const [activeFilter, setActiveFilter] = useState('all');
   const [viewMode, setViewMode] = useState('grid');
   const [searchQuery, setSearchQuery] = useState('');
 
+  const { data: books = [], isLoading, error } = useQuery({
+    queryKey: ['library-books'],
+    queryFn: async () => {
+      console.log('Fetching books from database...');
+      const { data, error } = await supabase
+        .from('books')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        console.error('Error fetching books:', error);
+        throw error;
+      }
+      
+      console.log('Fetched books:', data);
+      return data as Book[];
+    }
+  });
+
+  // Calculate filter counts based on actual data
+  const filterCounts = {
+    all: books.length,
+    active: books.filter(book => book.status === 'active').length,
+    processing: books.filter(book => book.status === 'processing').length,
+    inactive: books.filter(book => book.status === 'inactive').length,
+  };
+
+  const filters = [
+    { label: 'All Books', value: 'all', count: filterCounts.all },
+    { label: 'Active', value: 'active', count: filterCounts.active },
+    { label: 'Processing', value: 'processing', count: filterCounts.processing },
+    { label: 'Inactive', value: 'inactive', count: filterCounts.inactive },
+  ];
+
   const filteredBooks = books.filter(book => {
-    const matchesFilter = activeFilter === 'all' || 
-      (activeFilter === 'favorites' && book.favorite) ||
-      book.status === activeFilter;
+    const matchesFilter = activeFilter === 'all' || book.status === activeFilter;
     
     const matchesSearch = book.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      book.author.toLowerCase().includes(searchQuery.toLowerCase());
+      (book.author && book.author.toLowerCase().includes(searchQuery.toLowerCase()));
     
     return matchesFilter && matchesSearch;
   });
 
-  const getStatusIcon = (status: string, progress: number) => {
-    if (progress === 100 || status === 'completed') return <CheckCircle className="w-4 h-4 text-green-600" />;
-    if (progress > 0) return <Clock className="w-4 h-4 text-blue-600" />;
-    return null;
+  const getStatusIcon = (status: string | null) => {
+    switch (status) {
+      case 'active': return <CheckCircle className="w-4 h-4 text-green-600" />;
+      case 'processing': return <Clock className="w-4 h-4 text-blue-600" />;
+      case 'inactive': return <Clock className="w-4 h-4 text-red-600" />;
+      default: return <CheckCircle className="w-4 h-4 text-green-600" />;
+    }
   };
+
+  const getBookCoverColor = (index: number) => {
+    const colors = [
+      'bg-gradient-to-br from-blue-500 to-blue-600',
+      'bg-gradient-to-br from-emerald-500 to-emerald-600',
+      'bg-gradient-to-br from-purple-500 to-purple-600',
+      'bg-gradient-to-br from-orange-500 to-orange-600',
+      'bg-gradient-to-br from-teal-500 to-teal-600',
+      'bg-gradient-to-br from-indigo-500 to-indigo-600'
+    ];
+    return colors[index % colors.length];
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mx-auto mb-4"></div>
+          <p className="text-stone-600">Loading your library...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-red-600 mb-4">Error loading library</p>
+          <p className="text-stone-600">Please try refreshing the page</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -110,7 +123,7 @@ export const Library = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-stone-800">My Library</h1>
-          <p className="text-stone-600">Manage your book collection</p>
+          <p className="text-stone-600">Manage your book collection ({books.length} books)</p>
         </div>
         
         <div className="flex items-center gap-2">
@@ -164,27 +177,24 @@ export const Library = () => {
       </div>
 
       {/* Books Grid/List */}
-      {viewMode === 'grid' ? (
+      {filteredBooks.length === 0 ? (
+        <div className="text-center py-12">
+          <div className="w-16 h-16 bg-stone-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <BookOpen className="w-8 h-8 text-stone-400" />
+          </div>
+          <h3 className="text-lg font-medium text-stone-800 mb-2">No books found</h3>
+          <p className="text-stone-600">
+            {searchQuery ? 'Try adjusting your search terms' : 'Start building your library by uploading some books'}
+          </p>
+        </div>
+      ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {filteredBooks.map((book) => (
+          {filteredBooks.map((book, index) => (
             <Card key={book.id} className="border-stone-200 hover:shadow-lg transition-shadow cursor-pointer group">
               <CardContent className="p-4">
                 <div className="relative mb-4">
-                  <div className={`w-full h-48 rounded-lg ${book.cover} flex items-center justify-center relative overflow-hidden`}>
+                  <div className={`w-full h-48 rounded-lg ${getBookCoverColor(index)} flex items-center justify-center relative overflow-hidden`}>
                     <BookOpen className="w-12 h-12 text-white" />
-                    {book.favorite && (
-                      <Star className="absolute top-2 right-2 w-4 h-4 text-yellow-400 fill-current" />
-                    )}
-                    <div className="absolute bottom-2 left-2 right-2">
-                      {book.progress > 0 && (
-                        <div className="bg-white/20 rounded-full h-1">
-                          <div 
-                            className="bg-white h-1 rounded-full transition-all"
-                            style={{ width: `${book.progress}%` }}
-                          />
-                        </div>
-                      )}
-                    </div>
                   </div>
                 </div>
                 
@@ -193,24 +203,23 @@ export const Library = () => {
                     <h3 className="font-medium text-stone-800 group-hover:text-emerald-700 transition-colors leading-tight">
                       {book.title}
                     </h3>
-                    {getStatusIcon(book.status, book.progress)}
+                    {getStatusIcon(book.status)}
                   </div>
                   
-                  <p className="text-sm text-stone-600">{book.author}</p>
+                  <p className="text-sm text-stone-600">{book.author || 'Unknown Author'}</p>
                   
                   <div className="flex items-center justify-between">
                     <Badge variant="secondary" className="text-xs">
-                      {book.category}
+                      {book.category || 'Uncategorized'}
                     </Badge>
                     <div className="flex items-center gap-1">
-                      <Star className="w-3 h-3 text-yellow-500 fill-current" />
-                      <span className="text-xs text-stone-600">{book.rating}</span>
+                      <span className="text-xs text-stone-600">{book.language || 'Arabic'}</span>
                     </div>
                   </div>
                   
-                  {book.progress > 0 && book.progress < 100 && (
+                  {book.page_count && (
                     <div className="text-xs text-stone-500">
-                      {book.progress}% complete
+                      {book.page_count} pages
                     </div>
                   )}
                 </div>
@@ -220,15 +229,12 @@ export const Library = () => {
         </div>
       ) : (
         <div className="space-y-4">
-          {filteredBooks.map((book) => (
+          {filteredBooks.map((book, index) => (
             <Card key={book.id} className="border-stone-200 hover:shadow-md transition-shadow cursor-pointer">
               <CardContent className="p-4">
                 <div className="flex items-center gap-4">
-                  <div className={`w-16 h-20 rounded ${book.cover} flex items-center justify-center flex-shrink-0 relative`}>
+                  <div className={`w-16 h-20 rounded ${getBookCoverColor(index)} flex items-center justify-center flex-shrink-0 relative`}>
                     <BookOpen className="w-6 h-6 text-white" />
-                    {book.favorite && (
-                      <Star className="absolute -top-1 -right-1 w-3 h-3 text-yellow-400 fill-current" />
-                    )}
                   </div>
                   
                   <div className="flex-1 min-w-0">
@@ -237,35 +243,32 @@ export const Library = () => {
                         <h3 className="font-medium text-stone-800 hover:text-emerald-700 transition-colors">
                           {book.title}
                         </h3>
-                        <p className="text-sm text-stone-600 mb-2">{book.author}</p>
+                        <p className="text-sm text-stone-600 mb-2">{book.author || 'Unknown Author'}</p>
                         
                         <div className="flex items-center gap-4 text-xs text-stone-500">
-                          <Badge variant="secondary">{book.category}</Badge>
-                          <div className="flex items-center gap-1">
-                            <Star className="w-3 h-3 text-yellow-500 fill-current" />
-                            <span>{book.rating}</span>
-                          </div>
-                          {book.progress > 0 && (
-                            <span>{book.progress}% complete</span>
+                          <Badge variant="secondary">{book.category || 'Uncategorized'}</Badge>
+                          <span>{book.language || 'Arabic'}</span>
+                          {book.page_count && (
+                            <span>{book.page_count} pages</span>
+                          )}
+                          {book.file_size_mb && (
+                            <span>{book.file_size_mb} MB</span>
                           )}
                         </div>
                       </div>
                       
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        {getStatusIcon(book.status, book.progress)}
+                        {getStatusIcon(book.status)}
                         <Button variant="ghost" size="sm">
                           Open
                         </Button>
                       </div>
                     </div>
                     
-                    {book.progress > 0 && (
-                      <div className="mt-3 w-full bg-stone-200 rounded-full h-1">
-                        <div 
-                          className="bg-emerald-600 h-1 rounded-full transition-all"
-                          style={{ width: `${book.progress}%` }}
-                        />
-                      </div>
+                    {book.description && (
+                      <p className="text-sm text-stone-600 mt-2 line-clamp-2">
+                        {book.description}
+                      </p>
                     )}
                   </div>
                 </div>
