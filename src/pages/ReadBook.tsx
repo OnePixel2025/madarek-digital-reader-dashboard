@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { BookOpen, Bookmark, Mic, MicOff, MessageCircle, Brain, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
+import { BookOpen, Bookmark, Mic, MicOff, MessageCircle, Brain, Settings, ChevronLeft, ChevronRight, Home, List } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -29,6 +29,7 @@ export const ReadBook = () => {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [showSidebar, setShowSidebar] = useState(true);
 
   // Fetch books from database
   const { data: books = [], isLoading: booksLoading } = useQuery({
@@ -101,9 +102,13 @@ export const ReadBook = () => {
     setCurrentPage(prev => Math.min(numPages || 1, prev + 1));
   };
 
+  const goToPage = (pageNum: number) => {
+    setCurrentPage(pageNum);
+  };
+
   if (booksLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center h-screen bg-stone-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mx-auto mb-4"></div>
           <p className="text-stone-600">Loading books...</p>
@@ -114,7 +119,7 @@ export const ReadBook = () => {
 
   if (books.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center h-screen bg-stone-50">
         <div className="text-center">
           <BookOpen className="w-16 h-16 text-stone-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-stone-800 mb-2">No books available</h3>
@@ -125,17 +130,35 @@ export const ReadBook = () => {
   }
 
   return (
-    <div className="flex gap-6 h-full">
-      {/* Main Reading Area */}
-      <div className="flex-1 bg-white rounded-xl border border-stone-200 p-8">
-        <div className="max-w-4xl mx-auto">
-          {/* Book Header */}
-          <div className="mb-6 text-center">
-            <div className="mb-4">
+    <div className="flex h-screen bg-stone-900">
+      {/* Collapsible Sidebar */}
+      <div className={`${showSidebar ? 'w-80' : 'w-12'} bg-stone-800 text-white transition-all duration-300 flex flex-col`}>
+        {/* Header */}
+        <div className="p-4 border-b border-stone-700 flex items-center justify-between">
+          {showSidebar && (
+            <div>
+              <h2 className="text-lg font-semibold">{selectedBook?.title || 'Book Reader'}</h2>
+              <p className="text-stone-400 text-sm">{selectedBook?.author || 'Unknown Author'}</p>
+            </div>
+          )}
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => setShowSidebar(!showSidebar)}
+            className="text-white hover:bg-stone-700"
+          >
+            <List className="w-4 h-4" />
+          </Button>
+        </div>
+
+        {showSidebar && (
+          <>
+            {/* Book Selection */}
+            <div className="p-4 border-b border-stone-700">
               <select 
                 value={selectedBookId || ''} 
                 onChange={(e) => setSelectedBookId(e.target.value)}
-                className="px-4 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full px-3 py-2 bg-stone-700 border border-stone-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
                 {books.map(book => (
                   <option key={book.id} value={book.id}>
@@ -144,92 +167,32 @@ export const ReadBook = () => {
                 ))}
               </select>
             </div>
-            
-            {selectedBook && (
-              <>
-                <h1 className="text-2xl font-bold text-stone-800 mb-2">{selectedBook.title}</h1>
-                <p className="text-stone-600">{selectedBook.author || 'Unknown Author'}</p>
-                <div className="mt-4 text-sm text-stone-500">
-                  Page {currentPage} of {numPages || selectedBook.page_count || '?'}
-                </div>
-              </>
-            )}
-          </div>
 
-          {/* PDF Navigation */}
-          {pdfUrl && (
-            <div className="flex items-center justify-center gap-4 mb-6">
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={goToPrevPage}
-                disabled={currentPage <= 1}
-              >
-                <ChevronLeft className="w-4 h-4" />
-                Previous
-              </Button>
-              
-              <span className="text-sm text-stone-600">
-                Page {currentPage} of {numPages}
-              </span>
-              
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={goToNextPage}
-                disabled={currentPage >= (numPages || 1)}
-              >
-                Next
-                <ChevronRight className="w-4 h-4" />
-              </Button>
-            </div>
-          )}
-
-          {/* PDF Display */}
-          <div className="flex justify-center">
-            {pdfUrl ? (
-              <Document
-                file={pdfUrl}
-                onLoadSuccess={onDocumentLoadSuccess}
-                onLoadError={onDocumentLoadError}
-                loading={
-                  <div className="flex items-center justify-center p-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
-                  </div>
-                }
-              >
-                <Page 
-                  pageNumber={currentPage} 
-                  width={800}
-                  renderTextLayer={false}
-                  renderAnnotationLayer={false}
-                />
-              </Document>
-            ) : (
-              <div className="flex items-center justify-center p-8 border-2 border-dashed border-stone-200 rounded-lg">
-                <div className="text-center">
-                  <BookOpen className="w-12 h-12 text-stone-400 mx-auto mb-4" />
-                  <p className="text-stone-600">Loading PDF...</p>
-                </div>
+            {/* Page Navigation */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <h3 className="text-sm font-medium text-stone-300 mb-3">Pages ({numPages || selectedBook?.page_count || '?'})</h3>
+              <div className="space-y-1">
+                {numPages && Array.from({ length: numPages }, (_, i) => i + 1).map(pageNum => (
+                  <button
+                    key={pageNum}
+                    onClick={() => goToPage(pageNum)}
+                    className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                      currentPage === pageNum 
+                        ? 'bg-emerald-600 text-white' 
+                        : 'text-stone-300 hover:bg-stone-700'
+                    }`}
+                  >
+                    Page {pageNum}
+                  </button>
+                ))}
               </div>
-            )}
-          </div>
-        </div>
-      </div>
+            </div>
 
-      {/* Reading Tools Sidebar */}
-      <div className="w-80 space-y-6">
-        {/* Reading Controls */}
-        <Card className="border-stone-200">
-          <CardContent className="p-6">
-            <h3 className="font-semibold text-stone-800 mb-4 flex items-center gap-2">
-              <BookOpen className="w-4 h-4" />
-              Reading Tools
-            </h3>
-            
-            <div className="space-y-3">
+            {/* Reading Tools */}
+            <div className="p-4 border-t border-stone-700 space-y-2">
               <Button 
                 variant={isTTSActive ? "default" : "outline"} 
+                size="sm"
                 className="w-full justify-start"
                 onClick={() => setIsTTSActive(!isTTSActive)}
               >
@@ -237,86 +200,126 @@ export const ReadBook = () => {
                 {isTTSActive ? "Stop Reading" : "Text-to-Speech"}
               </Button>
 
-              <Button variant="outline" className="w-full justify-start">
+              <Button variant="outline" size="sm" className="w-full justify-start">
                 <Bookmark className="w-4 h-4 mr-2" />
-                Add Bookmark
-              </Button>
-
-              <Button variant="outline" className="w-full justify-start">
-                <Settings className="w-4 h-4 mr-2" />
-                Reading Settings
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* AI Features */}
-        <Card className="border-stone-200">
-          <CardContent className="p-6">
-            <h3 className="font-semibold text-stone-800 mb-4 flex items-center gap-2">
-              <Brain className="w-4 h-4" />
-              AI Assistant
-            </h3>
-            
-            <div className="space-y-3">
-              <Button variant="outline" className="w-full justify-start">
-                <Brain className="w-4 h-4 mr-2" />
-                Generate Summary
+                Bookmark
               </Button>
 
               <Button 
                 variant="outline" 
+                size="sm"
                 className="w-full justify-start"
                 onClick={() => setShowAIChat(!showAIChat)}
               >
                 <MessageCircle className="w-4 h-4 mr-2" />
-                Chat about Book
+                AI Chat
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </>
+        )}
+      </div>
 
-        {/* Progress */}
-        <Card className="border-stone-200">
-          <CardContent className="p-6">
-            <h3 className="font-semibold text-stone-800 mb-4">Reading Progress</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <div className="flex justify-between text-sm text-stone-600 mb-2">
-                  <span>Current Page</span>
-                  <span>{Math.round((currentPage / (numPages || 1)) * 100)}%</span>
-                </div>
-                <div className="w-full bg-stone-200 rounded-full h-2">
-                  <div 
-                    className="bg-emerald-600 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${(currentPage / (numPages || 1)) * 100}%` }}
-                  ></div>
-                </div>
-              </div>
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col">
+        {/* Top Bar */}
+        <div className="bg-stone-800 text-white px-6 py-3 flex items-center justify-between border-b border-stone-700">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="sm" className="text-white hover:bg-stone-700">
+              <Home className="w-4 h-4 mr-2" />
+              Back to Library
+            </Button>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            {/* Page Navigation */}
+            <div className="flex items-center gap-2">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={goToPrevPage}
+                disabled={currentPage <= 1}
+                className="text-white hover:bg-stone-700 disabled:opacity-50"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                previous
+              </Button>
+              
+              <span className="text-sm px-3 py-1 bg-stone-700 rounded">
+                {currentPage} of {numPages || '?'}
+              </span>
+              
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={goToNextPage}
+                disabled={currentPage >= (numPages || 1)}
+                className="text-white hover:bg-stone-700 disabled:opacity-50"
+              >
+                next
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
 
-              <Separator />
+            {/* Zoom and View Controls */}
+            <div className="flex items-center gap-2 text-sm">
+              <Button variant="ghost" size="sm" className="text-white hover:bg-stone-700">-</Button>
+              <span className="px-2">Fit Width</span>
+              <Button variant="ghost" size="sm" className="text-white hover:bg-stone-700">+</Button>
+            </div>
+          </div>
+        </div>
 
-              <div className="text-sm text-stone-600">
-                <div className="flex justify-between mb-1">
-                  <span>Total Pages:</span>
-                  <span>{numPages || selectedBook?.page_count || 'Unknown'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Current Page:</span>
-                  <span>{currentPage}</span>
-                </div>
+        {/* PDF Display Area */}
+        <div className="flex-1 bg-stone-600 overflow-auto flex items-center justify-center p-8">
+          {pdfUrl ? (
+            <div className="bg-white shadow-2xl">
+              <Document
+                file={pdfUrl}
+                onLoadSuccess={onDocumentLoadSuccess}
+                onLoadError={onDocumentLoadError}
+                loading={
+                  <div className="flex items-center justify-center p-20">
+                    <div className="text-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mx-auto mb-4"></div>
+                      <p className="text-stone-600">Loading presentation...</p>
+                    </div>
+                  </div>
+                }
+              >
+                <Page 
+                  pageNumber={currentPage} 
+                  width={Math.min(1000, window.innerWidth - (showSidebar ? 400 : 100))}
+                  renderTextLayer={false}
+                  renderAnnotationLayer={false}
+                />
+              </Document>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center p-20 bg-white rounded-lg shadow-2xl">
+              <div className="text-center">
+                <BookOpen className="w-16 h-16 text-stone-400 mx-auto mb-4" />
+                <p className="text-stone-600 text-lg">Loading presentation...</p>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          )}
+        </div>
+
+        {/* Progress Bar */}
+        <div className="bg-stone-800 px-6 py-2">
+          <div className="w-full bg-stone-700 rounded-full h-1">
+            <div 
+              className="bg-emerald-500 h-1 rounded-full transition-all duration-300"
+              style={{ width: `${(currentPage / (numPages || 1)) * 100}%` }}
+            ></div>
+          </div>
+        </div>
       </div>
 
       {/* AI Chat Drawer */}
       {showAIChat && (
         <div className="fixed inset-y-0 right-0 w-96 bg-white border-l border-stone-200 shadow-xl z-50 p-6">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-stone-800">Chat with Book</h3>
+            <h3 className="text-lg font-semibold text-stone-800">AI Reading Assistant</h3>
             <Button variant="ghost" size="sm" onClick={() => setShowAIChat(false)}>
               ×
             </Button>
