@@ -8,7 +8,7 @@ export const SignInPage = () => {
   return (
     <div className="min-h-screen bg-stone-50 flex">
       {/* Left side - Authentication */}
-      <div className="flex-1 flex flex-col justify-center py-12 px-8 sm:px-6 lg:px-20 xl:px-24 max-w-2xl">
+      <div className="flex-1 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-20 xl:px-24 max-w-2xl">
         <div className="mx-auto w-full max-w-lg">
           {/* Logo */}
           <div className="flex items-center gap-3 mb-8">
@@ -55,7 +55,7 @@ export const SignInPage = () => {
       {/* Right side - Image */}
       <div className="hidden lg:block relative flex-1">
         <img
-          className="absolute inset-0 h-full w-full object-cover"
+          className="absolute inset-0 h-full w-90 object-cover"
           src="https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80"
           alt="Learning environment"
         />
