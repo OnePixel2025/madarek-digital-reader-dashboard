@@ -8,7 +8,7 @@ export const SignInPage = () => {
   return (
     <div className="min-h-screen bg-stone-50 flex">
       {/* Left side - Authentication */}
-      <div className="flex-1 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-20 xl:px-24 max-w-2xl">
+      <div className="flex-1 flex flex-col justify-center py-12 px-8 sm:px-6 lg:px-20 xl:px-24 max-w-2xl">
         <div className="mx-auto w-full max-w-lg">
           {/* Logo */}
           <div className="flex items-center gap-3 mb-8">
