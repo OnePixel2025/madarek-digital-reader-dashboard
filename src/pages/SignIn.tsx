@@ -55,7 +55,7 @@ export const SignInPage = () => {
       {/* Right side - Image */}
       <div className="hidden lg:block relative flex-1">
         <img
-          className="absolute inset-0 h-full w-90 object-cover"
+          className="absolute inset-0 h-full w-full object-cover"
           src="https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80"
           alt="Learning environment"
         />
