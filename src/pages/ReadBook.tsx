@@ -65,12 +65,20 @@ export const ReadBook = () => {
 
       try {
         console.log('Getting PDF URL for file:', selectedBook.file_path);
-        const { data } = await supabase.storage
-          .from('books')
-          .getPublicUrl(selectedBook.file_path);
         
-        console.log('PDF URL:', data.publicUrl);
-        setPdfUrl(data.publicUrl);
+        // Check if file_path is already a full URL
+        if (selectedBook.file_path.startsWith('http')) {
+          console.log('File path is already a full URL:', selectedBook.file_path);
+          setPdfUrl(selectedBook.file_path);
+        } else {
+          // Generate public URL from file path
+          const { data } = await supabase.storage
+            .from('books')
+            .getPublicUrl(selectedBook.file_path);
+          
+          console.log('Generated PDF URL:', data.publicUrl);
+          setPdfUrl(data.publicUrl);
+        }
       } catch (error) {
         console.error('Error getting PDF URL:', error);
       }
