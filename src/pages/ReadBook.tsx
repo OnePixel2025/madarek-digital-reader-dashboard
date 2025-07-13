@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { BookOpen, Bookmark, Mic, MicOff, MessageCircle, Brain, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -8,8 +7,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { supabase } from '@/integrations/supabase/client';
 
-// Configure PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+// Configure PDF.js worker - Updated configuration
+pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 interface Book {
   id: string;
@@ -26,6 +25,8 @@ export const ReadBook = () => {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [loadingPdf, setLoadingPdf] = useState(false);
 
   // Fetch books from database
   const { data: books = [], isLoading: booksLoading } = useQuery({
@@ -63,24 +64,51 @@ export const ReadBook = () => {
       const selectedBook = books.find(book => book.id === selectedBookId);
       if (!selectedBook?.file_path) return;
 
+      setLoadingPdf(true);
+      setPdfError(null);
+      setPdfUrl(null);
+
       try {
         console.log('Getting PDF URL for file:', selectedBook.file_path);
+        
+        let finalUrl: string;
         
         // Check if file_path is already a full URL
         if (selectedBook.file_path.startsWith('http')) {
           console.log('File path is already a full URL:', selectedBook.file_path);
-          setPdfUrl(selectedBook.file_path);
+          finalUrl = selectedBook.file_path;
         } else {
           // Generate public URL from file path
           const { data } = await supabase.storage
             .from('books')
             .getPublicUrl(selectedBook.file_path);
           
-          console.log('Generated PDF URL:', data.publicUrl);
-          setPdfUrl(data.publicUrl);
+          finalUrl = data.publicUrl;
+          console.log('Generated PDF URL:', finalUrl);
         }
+
+        // Test if the URL is accessible
+        const response = await fetch(finalUrl, { 
+          method: 'HEAD',
+          mode: 'cors' 
+        });
+        
+        if (!response.ok) {
+          throw new Error(`PDF file not accessible: ${response.status} ${response.statusText}`);
+        }
+
+        // Check if it's actually a PDF
+        const contentType = response.headers.get('content-type');
+        if (contentType && !contentType.includes('application/pdf')) {
+          console.warn('File might not be a PDF, content-type:', contentType);
+        }
+
+        setPdfUrl(finalUrl);
+        setLoadingPdf(false);
       } catch (error) {
-        console.error('Error getting PDF URL:', error);
+        console.error('Error loading PDF:', error);
+        setPdfError(error instanceof Error ? error.message : 'Failed to load PDF file');
+        setLoadingPdf(false);
       }
     };
 
@@ -92,10 +120,13 @@ export const ReadBook = () => {
   const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     console.log('PDF loaded successfully with', numPages, 'pages');
     setNumPages(numPages);
+    setPdfError(null);
+    setCurrentPage(1); // Reset to first page when new document loads
   };
 
   const onDocumentLoadError = (error: Error) => {
-    console.error('Error loading PDF:', error);
+    console.error('Error loading PDF document:', error);
+    setPdfError(`Failed to load PDF: ${error.message}`);
   };
 
   const goToPrevPage = () => {
@@ -106,7 +137,15 @@ export const ReadBook = () => {
     setCurrentPage(prev => Math.min(numPages || 1, prev + 1));
   };
 
-  console.log(pdfUrl)
+  const handleRetryLoad = () => {
+    // Force reload the PDF by clearing and resetting the URL
+    const currentUrl = pdfUrl;
+    setPdfUrl(null);
+    setPdfError(null);
+    setTimeout(() => {
+      setPdfUrl(currentUrl);
+    }, 100);
+  };
 
   if (booksLoading) {
     return (
@@ -164,7 +203,7 @@ export const ReadBook = () => {
           </div>
 
           {/* PDF Navigation */}
-          {pdfUrl && (
+          {pdfUrl && numPages && (
             <div className="flex items-center justify-center gap-4 mb-6">
               <Button 
                 variant="outline" 
@@ -184,7 +223,7 @@ export const ReadBook = () => {
                 variant="outline" 
                 size="sm" 
                 onClick={goToNextPage}
-                disabled={currentPage >= (numPages || 1)}
+                disabled={currentPage >= numPages}
               >
                 Next
                 <ChevronRight className="w-4 h-4" />
@@ -194,29 +233,84 @@ export const ReadBook = () => {
 
           {/* PDF Display */}
           <div className="flex justify-center">
-            {pdfUrl ? (
-              <Document
-                file={pdfUrl}
-                onLoadSuccess={onDocumentLoadSuccess}
-                onLoadError={onDocumentLoadError}
-                loading={
-                  <div className="flex items-center justify-center p-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+            {loadingPdf ? (
+              <div className="flex items-center justify-center p-8 border-2 border-dashed border-stone-200 rounded-lg">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mx-auto mb-4"></div>
+                  <p className="text-stone-600">Loading PDF...</p>
+                </div>
+              </div>
+            ) : pdfError ? (
+              <div className="flex items-center justify-center p-8 border-2 border-red-200 rounded-lg bg-red-50">
+                <div className="text-center">
+                  <BookOpen className="w-12 h-12 text-red-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-red-800 mb-2">Failed to load PDF</h3>
+                  <p className="text-red-600 mb-4 text-sm">{pdfError}</p>
+                  <div className="space-y-2">
+                    <Button onClick={handleRetryLoad} variant="outline" size="sm">
+                      Retry Loading
+                    </Button>
+                    {pdfUrl && (
+                      <p className="text-xs text-red-500 break-all">
+                        URL: {pdfUrl}
+                      </p>
+                    )}
                   </div>
-                }
-              >
-                <Page 
-                  pageNumber={currentPage} 
-                  width={800}
-                  renderTextLayer={false}
-                  renderAnnotationLayer={false}
-                />
-              </Document>
+                </div>
+              </div>
+            ) : pdfUrl ? (
+              <div className="border border-stone-200 rounded-lg overflow-hidden">
+                <Document
+                  file={pdfUrl}
+                  onLoadSuccess={onDocumentLoadSuccess}
+                  onLoadError={onDocumentLoadError}
+                  loading={
+                    <div className="flex items-center justify-center p-8">
+                      <div className="text-center">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mx-auto mb-4"></div>
+                        <p className="text-stone-600">Loading PDF document...</p>
+                      </div>
+                    </div>
+                  }
+                  error={
+                    <div className="flex items-center justify-center p-8 text-red-600">
+                      <div className="text-center">
+                        <BookOpen className="w-12 h-12 text-red-400 mx-auto mb-4" />
+                        <p>Error loading PDF document</p>
+                        <Button onClick={handleRetryLoad} variant="outline" size="sm" className="mt-2">
+                          Retry
+                        </Button>
+                      </div>
+                    </div>
+                  }
+                  options={{
+                    cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/cmaps/',
+                    cMapPacked: true,
+                  }}
+                >
+                  <Page 
+                    pageNumber={currentPage} 
+                    width={800}
+                    renderTextLayer={false}
+                    renderAnnotationLayer={false}
+                    loading={
+                      <div className="flex items-center justify-center p-8">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-600"></div>
+                      </div>
+                    }
+                    error={
+                      <div className="flex items-center justify-center p-8 text-red-600">
+                        <p>Error loading page {currentPage}</p>
+                      </div>
+                    }
+                  />
+                </Document>
+              </div>
             ) : (
               <div className="flex items-center justify-center p-8 border-2 border-dashed border-stone-200 rounded-lg">
                 <div className="text-center">
                   <BookOpen className="w-12 h-12 text-stone-400 mx-auto mb-4" />
-                  <p className="text-stone-600">Loading PDF...</p>
+                  <p className="text-stone-600">Select a book to start reading</p>
                 </div>
               </div>
             )}
@@ -317,6 +411,21 @@ export const ReadBook = () => {
             </div>
           </CardContent>
         </Card>
+
+        {/* Debug Info (only show if there's an error) */}
+        {pdfError && (
+          <Card className="border-red-200 bg-red-50">
+            <CardContent className="p-4">
+              <h4 className="font-semibold text-red-800 mb-2">Debug Info</h4>
+              <div className="text-xs text-red-600 space-y-1">
+                <div>Book ID: {selectedBookId}</div>
+                <div>File Path: {selectedBook?.file_path}</div>
+                <div>PDF URL: {pdfUrl}</div>
+                <div>Error: {pdfError}</div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* AI Chat Drawer */}
