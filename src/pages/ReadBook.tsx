@@ -78,30 +78,33 @@ export const ReadBook = () => {
           console.log('File path is already a full URL:', selectedBook.file_path);
           finalUrl = selectedBook.file_path;
         } else {
-          // Generate public URL from file path
-          const { data } = await supabase.storage
-            .from('books')
-            .getPublicUrl(selectedBook.file_path);
-          
-          finalUrl = data.publicUrl;
-          console.log('Generated PDF URL:', finalUrl);
+          // Try to download the file as blob to avoid CORS issues
+          try {
+            const { data, error } = await supabase.storage
+              .from('books')
+              .download(selectedBook.file_path);
+            
+            if (error) throw error;
+            
+            // Create blob URL
+            const blobUrl = URL.createObjectURL(data);
+            finalUrl = blobUrl;
+            console.log('Downloaded PDF as blob:', blobUrl);
+          } catch (downloadError) {
+            console.warn('Failed to download as blob, trying public URL:', downloadError);
+            // Fallback to public URL
+            const { data } = await supabase.storage
+              .from('books')
+              .getPublicUrl(selectedBook.file_path);
+            
+            finalUrl = data.publicUrl;
+            console.log('Using public URL as fallback:', finalUrl);
+          }
         }
 
-        // Test if the URL is accessible
-        const response = await fetch(finalUrl, { 
-          method: 'HEAD',
-          mode: 'cors' 
-        });
-        
-        if (!response.ok) {
-          throw new Error(`PDF file not accessible: ${response.status} ${response.statusText}`);
-        }
-
-        // Check if it's actually a PDF
-        const contentType = response.headers.get('content-type');
-        if (contentType && !contentType.includes('application/pdf')) {
-          console.warn('File might not be a PDF, content-type:', contentType);
-        }
+        // Skip URL testing for now - let react-pdf handle it directly
+        // CORS issues might prevent fetch testing but react-pdf can still load the file
+        console.log('Skipping URL accessibility test due to potential CORS issues');
 
         setPdfUrl(finalUrl);
         setLoadingPdf(false);
@@ -286,6 +289,7 @@ export const ReadBook = () => {
                   options={{
                     cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/cmaps/',
                     cMapPacked: true,
+                    withCredentials: false, // Important for CORS
                   }}
                 >
                   <Page 
