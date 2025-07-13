@@ -106,6 +106,8 @@ export const ReadBook = () => {
     setCurrentPage(prev => Math.min(numPages || 1, prev + 1));
   };
 
+  console.log(pdfUrl)
+
   if (booksLoading) {
     return (
       <div className="flex items-center justify-center h-64">
