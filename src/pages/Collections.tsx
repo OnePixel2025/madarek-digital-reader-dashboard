@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Plus, BookOpen, Edit, Trash2, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -8,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
-const collections = [
+const initialCollections = [
   {
     id: 1,
     title: 'History of Sudan',
@@ -43,14 +42,42 @@ const collections = [
   }
 ];
 
+const coverColors = [
+  'bg-gradient-to-br from-red-500 to-pink-600',
+  'bg-gradient-to-br from-blue-500 to-indigo-600',
+  'bg-gradient-to-br from-green-500 to-emerald-600',
+  'bg-gradient-to-br from-purple-500 to-violet-600',
+  'bg-gradient-to-br from-orange-500 to-amber-600',
+  'bg-gradient-to-br from-teal-500 to-cyan-600',
+  'bg-gradient-to-br from-slate-500 to-stone-600'
+];
+
 export const Collections = () => {
+  const [collections, setCollections] = useState(initialCollections);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [newCollection, setNewCollection] = useState({ title: '', description: '' });
 
   const handleCreateCollection = () => {
-    console.log('Creating collection:', newCollection);
+    if (newCollection.title.trim() === '') return;
+    
+    const randomColor = coverColors[Math.floor(Math.random() * coverColors.length)];
+    
+    const collection = {
+      id: Date.now(), // Simple ID generation
+      title: newCollection.title,
+      description: newCollection.description,
+      bookCount: 0,
+      cover: randomColor,
+      books: []
+    };
+    
+    setCollections(prev => [...prev, collection]);
     setNewCollection({ title: '', description: '' });
     setIsDialogOpen(false);
+  };
+
+  const handleDeleteCollection = (id) => {
+    setCollections(prev => prev.filter(collection => collection.id !== id));
   };
 
   return (
@@ -98,7 +125,10 @@ export const Collections = () => {
                 <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
                   Cancel
                 </Button>
-                <Button onClick={handleCreateCollection}>
+                <Button 
+                  onClick={handleCreateCollection}
+                  disabled={!newCollection.title.trim()}
+                >
                   Create Collection
                 </Button>
               </div>
@@ -120,7 +150,12 @@ export const Collections = () => {
                   <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
                     <Edit className="w-4 h-4" />
                   </Button>
-                  <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity text-red-600 hover:text-red-700">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-red-600 hover:text-red-700"
+                    onClick={() => handleDeleteCollection(collection.id)}
+                  >
                     <Trash2 className="w-4 h-4" />
                   </Button>
                 </div>
@@ -143,16 +178,24 @@ export const Collections = () => {
                 <Star className="w-4 h-4 text-stone-400 hover:text-yellow-500 transition-colors cursor-pointer" />
               </div>
               
-              <div className="space-y-2">
-                <p className="text-xs text-stone-500 font-medium">Sample Books:</p>
-                <div className="space-y-1">
-                  {collection.books.slice(0, 3).map((book, index) => (
-                    <div key={index} className="text-xs text-stone-600 truncate">
-                      • {book}
-                    </div>
-                  ))}
+              {collection.books.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs text-stone-500 font-medium">Sample Books:</p>
+                  <div className="space-y-1">
+                    {collection.books.slice(0, 3).map((book, index) => (
+                      <div key={index} className="text-xs text-stone-600 truncate">
+                        • {book}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
+              
+              {collection.books.length === 0 && (
+                <div className="text-center py-4">
+                  <p className="text-xs text-stone-500">No books added yet</p>
+                </div>
+              )}
               
               <Button variant="outline" size="sm" className="w-full mt-4 border-emerald-200 text-emerald-700 hover:bg-emerald-50">
                 View Collection
