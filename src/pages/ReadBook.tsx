@@ -1,14 +1,73 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BookOpen, Bookmark, Mic, MicOff, MessageCircle, Brain, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { useQuery } from '@tanstack/react-query';
-import { Document, Page, pdfjs } from 'react-pdf';
 import { supabase } from '@/integrations/supabase/client';
 
-// Configure PDF.js worker - Updated configuration
-pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+// Define the custom PDF viewer element
+const createPdfViewerElement = () => {
+  if (typeof window !== 'undefined' && !customElements.get('pdf-viewer')) {
+    const template = document.createElement('template');
+    template.innerHTML = `
+      <style>
+        :host {
+          display: block;
+          width: 100%;
+          height: 600px;
+          border: 1px solid #e5e7eb;
+          border-radius: 0.5rem;
+          overflow: hidden;
+        }
+        iframe {
+          width: 100%;
+          height: 100%;
+          border: none;
+          background: #f9fafb;
+        }
+      </style>
+      <iframe title="PDF Viewer"></iframe>
+    `;
+
+    class PdfViewer extends HTMLElement {
+      constructor() {
+        super();
+        const shadowRoot = this.attachShadow({ mode: 'open' });
+        shadowRoot.appendChild(template.content.cloneNode(true));
+      }
+
+      static get observedAttributes() {
+        return ['src'];
+      }
+
+      connectedCallback() {
+        this.updateIframeSrc();
+      }
+
+      attributeChangedCallback(name) {
+        if (name === 'src') {
+          this.updateIframeSrc();
+        }
+      }
+
+      updateIframeSrc() {
+        const iframe = this.shadowRoot.querySelector('iframe');
+        const src = this.getAttribute('src');
+        if (src) {
+          iframe.setAttribute(
+            'src',
+            `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(src)}`
+          );
+        } else {
+          iframe.removeAttribute('src');
+        }
+      }
+    }
+
+    window.customElements.define('pdf-viewer', PdfViewer);
+  }
+};
 
 interface Book {
   id: string;
@@ -21,12 +80,16 @@ interface Book {
 export const ReadBook = () => {
   const [isTTSActive, setIsTTSActive] = useState(false);
   const [showAIChat, setShowAIChat] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [numPages, setNumPages] = useState<number | null>(null);
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [loadingPdf, setLoadingPdf] = useState(false);
+  const pdfViewerRef = useRef<HTMLElement | null>(null);
+
+  // Initialize the custom element
+  useEffect(() => {
+    createPdfViewerElement();
+  }, []);
 
   // Fetch books from database
   const { data: books = [], isLoading: booksLoading } = useQuery({
@@ -78,30 +141,33 @@ export const ReadBook = () => {
           console.log('File path is already a full URL:', selectedBook.file_path);
           finalUrl = selectedBook.file_path;
         } else {
-          // Generate public URL from file path
-          const { data } = await supabase.storage
-            .from('books')
-            .getPublicUrl(selectedBook.file_path);
-          
-          finalUrl = data.publicUrl;
-          console.log('Generated PDF URL:', finalUrl);
+          // Try to download the file as blob to avoid CORS issues
+          try {
+            const { data, error } = await supabase.storage
+              .from('books')
+              .download(selectedBook.file_path);
+            
+            if (error) throw error;
+            
+            // Create blob URL
+            const blobUrl = URL.createObjectURL(data);
+            finalUrl = blobUrl;
+            console.log('Downloaded PDF as blob:', blobUrl);
+          } catch (downloadError) {
+            console.warn('Failed to download as blob, trying public URL:', downloadError);
+            // Fallback to public URL
+            const { data } = await supabase.storage
+              .from('books')
+              .getPublicUrl(selectedBook.file_path);
+            
+            finalUrl = data.publicUrl;
+            console.log('Using public URL as fallback:', finalUrl);
+          }
         }
 
-        // Test if the URL is accessible
-        const response = await fetch(finalUrl, { 
-          method: 'HEAD',
-          mode: 'cors' 
-        });
-        
-        if (!response.ok) {
-          throw new Error(`PDF file not accessible: ${response.status} ${response.statusText}`);
-        }
-
-        // Check if it's actually a PDF
-        const contentType = response.headers.get('content-type');
-        if (contentType && !contentType.includes('application/pdf')) {
-          console.warn('File might not be a PDF, content-type:', contentType);
-        }
+        // Skip URL testing for now - let PDF.js viewer handle it directly
+        // CORS issues might prevent fetch testing but PDF.js viewer can still load the file
+        console.log('Skipping URL accessibility test due to potential CORS issues');
 
         setPdfUrl(finalUrl);
         setLoadingPdf(false);
@@ -117,26 +183,6 @@ export const ReadBook = () => {
 
   const selectedBook = books.find(book => book.id === selectedBookId);
 
-  const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
-    console.log('PDF loaded successfully with', numPages, 'pages');
-    setNumPages(numPages);
-    setPdfError(null);
-    setCurrentPage(1); // Reset to first page when new document loads
-  };
-
-  const onDocumentLoadError = (error: Error) => {
-    console.error('Error loading PDF document:', error);
-    setPdfError(`Failed to load PDF: ${error.message}`);
-  };
-
-  const goToPrevPage = () => {
-    setCurrentPage(prev => Math.max(1, prev - 1));
-  };
-
-  const goToNextPage = () => {
-    setCurrentPage(prev => Math.min(numPages || 1, prev + 1));
-  };
-
   const handleRetryLoad = () => {
     // Force reload the PDF by clearing and resetting the URL
     const currentUrl = pdfUrl;
@@ -146,6 +192,13 @@ export const ReadBook = () => {
       setPdfUrl(currentUrl);
     }, 100);
   };
+
+  // Update the PDF viewer when URL changes
+  useEffect(() => {
+    if (pdfViewerRef.current && pdfUrl) {
+      pdfViewerRef.current.setAttribute('src', pdfUrl);
+    }
+  }, [pdfUrl]);
 
   if (booksLoading) {
     return (
@@ -195,53 +248,21 @@ export const ReadBook = () => {
               <>
                 <h1 className="text-2xl font-bold text-stone-800 mb-2">{selectedBook.title}</h1>
                 <p className="text-stone-600">{selectedBook.author || 'Unknown Author'}</p>
-                <div className="mt-4 text-sm text-stone-500">
-                  Page {currentPage} of {numPages || selectedBook.page_count || '?'}
-                </div>
               </>
             )}
           </div>
 
-          {/* PDF Navigation */}
-          {pdfUrl && numPages && (
-            <div className="flex items-center justify-center gap-4 mb-6">
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={goToPrevPage}
-                disabled={currentPage <= 1}
-              >
-                <ChevronLeft className="w-4 h-4" />
-                Previous
-              </Button>
-              
-              <span className="text-sm text-stone-600">
-                Page {currentPage} of {numPages}
-              </span>
-              
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={goToNextPage}
-                disabled={currentPage >= numPages}
-              >
-                Next
-                <ChevronRight className="w-4 h-4" />
-              </Button>
-            </div>
-          )}
-
           {/* PDF Display */}
           <div className="flex justify-center">
             {loadingPdf ? (
-              <div className="flex items-center justify-center p-8 border-2 border-dashed border-stone-200 rounded-lg">
+              <div className="flex items-center justify-center p-8 border-2 border-dashed border-stone-200 rounded-lg w-full h-96">
                 <div className="text-center">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mx-auto mb-4"></div>
                   <p className="text-stone-600">Loading PDF...</p>
                 </div>
               </div>
             ) : pdfError ? (
-              <div className="flex items-center justify-center p-8 border-2 border-red-200 rounded-lg bg-red-50">
+              <div className="flex items-center justify-center p-8 border-2 border-red-200 rounded-lg bg-red-50 w-full h-96">
                 <div className="text-center">
                   <BookOpen className="w-12 h-12 text-red-400 mx-auto mb-4" />
                   <h3 className="text-lg font-medium text-red-800 mb-2">Failed to load PDF</h3>
@@ -259,55 +280,15 @@ export const ReadBook = () => {
                 </div>
               </div>
             ) : pdfUrl ? (
-              <div className="border border-stone-200 rounded-lg overflow-hidden">
-                <Document
-                  file={pdfUrl}
-                  onLoadSuccess={onDocumentLoadSuccess}
-                  onLoadError={onDocumentLoadError}
-                  loading={
-                    <div className="flex items-center justify-center p-8">
-                      <div className="text-center">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mx-auto mb-4"></div>
-                        <p className="text-stone-600">Loading PDF document...</p>
-                      </div>
-                    </div>
-                  }
-                  error={
-                    <div className="flex items-center justify-center p-8 text-red-600">
-                      <div className="text-center">
-                        <BookOpen className="w-12 h-12 text-red-400 mx-auto mb-4" />
-                        <p>Error loading PDF document</p>
-                        <Button onClick={handleRetryLoad} variant="outline" size="sm" className="mt-2">
-                          Retry
-                        </Button>
-                      </div>
-                    </div>
-                  }
-                  options={{
-                    cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/cmaps/',
-                    cMapPacked: true,
-                  }}
-                >
-                  <Page 
-                    pageNumber={currentPage} 
-                    width={800}
-                    renderTextLayer={false}
-                    renderAnnotationLayer={false}
-                    loading={
-                      <div className="flex items-center justify-center p-8">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-600"></div>
-                      </div>
-                    }
-                    error={
-                      <div className="flex items-center justify-center p-8 text-red-600">
-                        <p>Error loading page {currentPage}</p>
-                      </div>
-                    }
-                  />
-                </Document>
+              <div className="w-full">
+                <pdf-viewer 
+                  ref={pdfViewerRef}
+                  src={pdfUrl}
+                  style={{ width: '100%', height: '600px' }}
+                />
               </div>
             ) : (
-              <div className="flex items-center justify-center p-8 border-2 border-dashed border-stone-200 rounded-lg">
+              <div className="flex items-center justify-center p-8 border-2 border-dashed border-stone-200 rounded-lg w-full h-96">
                 <div className="text-center">
                   <BookOpen className="w-12 h-12 text-stone-400 mx-auto mb-4" />
                   <p className="text-stone-600">Select a book to start reading</p>
@@ -383,30 +364,23 @@ export const ReadBook = () => {
             <h3 className="font-semibold text-stone-800 mb-4">Reading Progress</h3>
             
             <div className="space-y-4">
-              <div>
-                <div className="flex justify-between text-sm text-stone-600 mb-2">
-                  <span>Current Page</span>
-                  <span>{Math.round((currentPage / (numPages || 1)) * 100)}%</span>
-                </div>
-                <div className="w-full bg-stone-200 rounded-full h-2">
-                  <div 
-                    className="bg-emerald-600 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${(currentPage / (numPages || 1)) * 100}%` }}
-                  ></div>
-                </div>
-              </div>
-
-              <Separator />
-
               <div className="text-sm text-stone-600">
-                <div className="flex justify-between mb-1">
-                  <span>Total Pages:</span>
-                  <span>{numPages || selectedBook?.page_count || 'Unknown'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Current Page:</span>
-                  <span>{currentPage}</span>
-                </div>
+                {selectedBook && (
+                  <>
+                    <div className="flex justify-between mb-1">
+                      <span>Book:</span>
+                      <span className="text-right">{selectedBook.title}</span>
+                    </div>
+                    <div className="flex justify-between mb-1">
+                      <span>Author:</span>
+                      <span>{selectedBook.author || 'Unknown'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Total Pages:</span>
+                      <span>{selectedBook.page_count || 'Unknown'}</span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </CardContent>
