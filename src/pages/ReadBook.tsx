@@ -6,68 +6,26 @@ import { Separator } from '@/components/ui/separator';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
-// Define the custom PDF viewer element
-const createPdfViewerElement = () => {
-  if (typeof window !== 'undefined' && !customElements.get('pdf-viewer')) {
-    const template = document.createElement('template');
-    template.innerHTML = `
-      <style>
-        :host {
-          display: block;
-          width: 100%;
-          height: 600px;
-          border: 1px solid #e5e7eb;
-          border-radius: 0.5rem;
-          overflow: hidden;
-        }
-        iframe {
-          width: 100%;
-          height: 100%;
-          border: none;
-          background: #f9fafb;
-        }
-      </style>
-      <iframe title="PDF Viewer"></iframe>
-    `;
-
-    class PdfViewer extends HTMLElement {
-      constructor() {
-        super();
-        const shadowRoot = this.attachShadow({ mode: 'open' });
-        shadowRoot.appendChild(template.content.cloneNode(true));
-      }
-
-      static get observedAttributes() {
-        return ['src'];
-      }
-
-      connectedCallback() {
-        this.updateIframeSrc();
-      }
-
-      attributeChangedCallback(name) {
-        if (name === 'src') {
-          this.updateIframeSrc();
-        }
-      }
-
-      updateIframeSrc() {
-        const iframe = this.shadowRoot.querySelector('iframe');
-        const src = this.getAttribute('src');
-        if (src) {
-          iframe.setAttribute(
-            'src',
-            `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(src)}`
-          );
-        } else {
-          iframe.removeAttribute('src');
-        }
-      }
-    }
-
-    window.customElements.define('pdf-viewer', PdfViewer);
+// PDF Viewer Component using iframe
+const PdfViewer = React.forwardRef<HTMLIFrameElement, { src?: string; style?: React.CSSProperties }>(
+  ({ src, style }, ref) => {
+    return (
+      <iframe
+        ref={ref}
+        src={src ? `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(src)}` : undefined}
+        title="PDF Viewer"
+        style={{
+          width: '100%',
+          height: '600px',
+          border: '1px solid #e5e7eb',
+          borderRadius: '0.5rem',
+          background: '#f9fafb',
+          ...style
+        }}
+      />
+    );
   }
-};
+);
 
 interface Book {
   id: string;
@@ -84,12 +42,7 @@ export const ReadBook = () => {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [loadingPdf, setLoadingPdf] = useState(false);
-  const pdfViewerRef = useRef<HTMLElement | null>(null);
-
-  // Initialize the custom element
-  useEffect(() => {
-    createPdfViewerElement();
-  }, []);
+  const pdfViewerRef = useRef<HTMLIFrameElement | null>(null);
 
   // Fetch books from database
   const { data: books = [], isLoading: booksLoading } = useQuery({
@@ -193,12 +146,6 @@ export const ReadBook = () => {
     }, 100);
   };
 
-  // Update the PDF viewer when URL changes
-  useEffect(() => {
-    if (pdfViewerRef.current && pdfUrl) {
-      pdfViewerRef.current.setAttribute('src', pdfUrl);
-    }
-  }, [pdfUrl]);
 
   if (booksLoading) {
     return (
@@ -281,7 +228,7 @@ export const ReadBook = () => {
               </div>
             ) : pdfUrl ? (
               <div className="w-full">
-                <pdf-viewer 
+                <PdfViewer 
                   ref={pdfViewerRef}
                   src={pdfUrl}
                   style={{ width: '100%', height: '600px' }}
