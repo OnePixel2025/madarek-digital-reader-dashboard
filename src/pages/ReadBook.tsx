@@ -94,33 +94,14 @@ export const ReadBook = () => {
           console.log('File path is already a full URL:', selectedBook.file_path);
           finalUrl = selectedBook.file_path;
         } else {
-          // Try to download the file as blob to avoid CORS issues
-          try {
-            const { data, error } = await supabase.storage
-              .from('books')
-              .download(selectedBook.file_path);
-            
-            if (error) throw error;
-            
-            // Create blob URL
-            const blobUrl = URL.createObjectURL(data);
-            finalUrl = blobUrl;
-            console.log('Downloaded PDF as blob:', blobUrl);
-          } catch (downloadError) {
-            console.warn('Failed to download as blob, trying public URL:', downloadError);
-            // Fallback to public URL
-            const { data } = await supabase.storage
-              .from('books')
-              .getPublicUrl(selectedBook.file_path);
-            
-            finalUrl = data.publicUrl;
-            console.log('Using public URL as fallback:', finalUrl);
-          }
+          // Get public URL from Supabase storage
+          const { data } = await supabase.storage
+            .from('books')
+            .getPublicUrl(selectedBook.file_path);
+          
+          finalUrl = data.publicUrl;
+          console.log('Generated public URL:', finalUrl);
         }
-
-        // Skip URL testing for now - let PDF.js viewer handle it directly
-        // CORS issues might prevent fetch testing but PDF.js viewer can still load the file
-        console.log('Skipping URL accessibility test due to potential CORS issues');
 
         setPdfUrl(finalUrl);
         setLoadingPdf(false);
