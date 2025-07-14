@@ -123,6 +123,17 @@ export const ReadBook = () => {
   const pdfViewerRef = useRef<HTMLIFrameElement | null>(null);
   const progressUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Mock books data for demo
+  const mockBooks: Book[] = [
+    {
+      id: 'demo-book-1',
+      title: 'Sample Book',
+      author: 'Demo Author',
+      file_path: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+      page_count: 10
+    }
+  ];
+
   // Fetch books from database
   const { data: books = [], isLoading: booksLoading } = useQuery({
     queryKey: ['books-for-reading'],
