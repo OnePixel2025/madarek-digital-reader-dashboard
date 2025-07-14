@@ -9,6 +9,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { ReadBook } from "./pages/ReadBook";
 import { Library } from "./pages/Library";
 import { Collections } from "./pages/Collections";
+import { CollectionDetails } from "./pages/CollectionDetails";
 import { Podcasts } from "./pages/Podcasts";
 import { Uploads } from "./pages/Uploads";
 import { AIChat } from "./pages/AIChat";
@@ -35,6 +36,7 @@ const App = () => (
             <Route path="read-book/:bookId" element={<ReadBook />} />
             <Route path="library" element={<Library />} />
             <Route path="collections" element={<Collections />} />
+            <Route path="collections/:collectionId" element={<CollectionDetails />} />
             <Route path="podcasts" element={<Podcasts />} />
             <Route path="uploads" element={<Uploads />} />
             <Route path="ai-chat" element={<AIChat />} />
