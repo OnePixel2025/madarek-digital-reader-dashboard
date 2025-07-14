@@ -3,8 +3,12 @@ import { BookOpen, Bookmark, Mic, MicOff, MessageCircle, Brain, Settings, Chevro
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { useQuery } from '@tanstack/react-query';
+import { Progress } from '@/components/ui/progress';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useUser } from '@clerk/clerk-react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from '@/hooks/use-toast';
 
 // PDF Viewer Component using iframe
 const PdfViewer = React.forwardRef<HTMLIFrameElement, { src?: string; style?: React.CSSProperties }>(
@@ -36,12 +40,19 @@ interface Book {
 }
 
 export const ReadBook = () => {
+  const { user } = useUser();
+  const [searchParams] = useSearchParams();
+  const queryClient = useQueryClient();
+  
   const [isTTSActive, setIsTTSActive] = useState(false);
   const [showAIChat, setShowAIChat] = useState(false);
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState<number>(1);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [loadingPdf, setLoadingPdf] = useState(false);
+  const [readingSessionId, setReadingSessionId] = useState<string | null>(null);
+  const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
   const pdfViewerRef = useRef<HTMLIFrameElement | null>(null);
 
   // Fetch books from database
@@ -65,12 +76,21 @@ export const ReadBook = () => {
     }
   });
 
-  // Auto-select first book if none selected
+  // Handle URL parameters for book and page
   useEffect(() => {
-    if (books.length > 0 && !selectedBookId) {
+    const bookParam = searchParams.get('book');
+    const pageParam = searchParams.get('page');
+    
+    if (bookParam) {
+      setSelectedBookId(bookParam);
+    } else if (books.length > 0 && !selectedBookId) {
       setSelectedBookId(books[0].id);
     }
-  }, [books, selectedBookId]);
+    
+    if (pageParam) {
+      setCurrentPage(parseInt(pageParam, 10));
+    }
+  }, [books, selectedBookId, searchParams]);
 
   // Get PDF URL when book is selected
   useEffect(() => {
@@ -114,6 +134,148 @@ export const ReadBook = () => {
 
     loadPdfUrl();
   }, [selectedBookId, books]);
+
+  // Fetch reading progress for selected book
+  const { data: bookProgress } = useQuery({
+    queryKey: ['book-progress', selectedBookId, user?.id],
+    queryFn: async () => {
+      if (!selectedBookId || !user?.id) return null;
+      
+      const { data, error } = await supabase
+        .from('book_progress')
+        .select('*')
+        .eq('book_id', selectedBookId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching book progress:', error);
+        return null;
+      }
+
+      return data;
+    },
+    enabled: !!selectedBookId && !!user?.id,
+  });
+
+  // Start reading session mutation
+  const startSessionMutation = useMutation({
+    mutationFn: async ({ bookId, pageStart }: { bookId: string; pageStart: number }) => {
+      if (!user?.id) throw new Error('User not authenticated');
+      
+      const { data, error } = await supabase
+        .from('reading_sessions')
+        .insert({
+          user_id: user.id,
+          book_id: bookId,
+          page_start: pageStart,
+          start_time: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      setReadingSessionId(data.id);
+      setSessionStartTime(new Date());
+    }
+  });
+
+  // End reading session mutation
+  const endSessionMutation = useMutation({
+    mutationFn: async ({ sessionId, pageEnd }: { sessionId: string; pageEnd: number }) => {
+      const endTime = new Date();
+      const startTime = sessionStartTime || new Date();
+      const durationMinutes = Math.round((endTime.getTime() - startTime.getTime()) / (1000 * 60));
+
+      const { error } = await supabase
+        .from('reading_sessions')
+        .update({
+          end_time: endTime.toISOString(),
+          page_end: pageEnd,
+          duration_minutes: Math.max(durationMinutes, 1) // At least 1 minute
+        })
+        .eq('id', sessionId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reading-stats'] });
+    }
+  });
+
+  // Update book progress mutation
+  const updateProgressMutation = useMutation({
+    mutationFn: async ({ 
+      bookId, 
+      currentPage, 
+      totalPages 
+    }: { 
+      bookId: string; 
+      currentPage: number; 
+      totalPages?: number;
+    }) => {
+      if (!user?.id) throw new Error('User not authenticated');
+      
+      const progressPercentage = totalPages ? (currentPage / totalPages) * 100 : 0;
+      const isCompleted = totalPages ? currentPage >= totalPages : false;
+
+      const { error } = await supabase
+        .from('book_progress')
+        .upsert({
+          user_id: user.id,
+          book_id: bookId,
+          current_page: currentPage,
+          total_pages: totalPages,
+          progress_percentage: progressPercentage,
+          is_completed: isCompleted,
+          completed_at: isCompleted ? new Date().toISOString() : null,
+          last_read_at: new Date().toISOString()
+        });
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['book-progress'] });
+      queryClient.invalidateQueries({ queryKey: ['reading-history'] });
+    }
+  });
+
+  // Start reading session when book is selected
+  useEffect(() => {
+    if (selectedBookId && user?.id && !readingSessionId) {
+      startSessionMutation.mutate({ 
+        bookId: selectedBookId, 
+        pageStart: currentPage 
+      });
+    }
+  }, [selectedBookId, user?.id]);
+
+  // Update progress when page changes
+  useEffect(() => {
+    if (selectedBookId && currentPage > 0) {
+      const selectedBook = books.find(book => book.id === selectedBookId);
+      updateProgressMutation.mutate({
+        bookId: selectedBookId,
+        currentPage,
+        totalPages: selectedBook?.page_count || undefined
+      });
+    }
+  }, [selectedBookId, currentPage, books]);
+
+  // End session when component unmounts or book changes
+  useEffect(() => {
+    return () => {
+      if (readingSessionId && currentPage > 0) {
+        endSessionMutation.mutate({ 
+          sessionId: readingSessionId, 
+          pageEnd: currentPage 
+        });
+      }
+    };
+  }, [readingSessionId, currentPage]);
 
   const selectedBook = books.find(book => book.id === selectedBookId);
 
@@ -292,21 +454,73 @@ export const ReadBook = () => {
             <h3 className="font-semibold text-stone-800 mb-4">Reading Progress</h3>
             
             <div className="space-y-4">
+              {/* Page Controls */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                  disabled={currentPage <= 1}
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                
+                <div className="flex-1 text-center">
+                  <input
+                    type="number"
+                    value={currentPage}
+                    onChange={(e) => setCurrentPage(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-16 px-2 py-1 text-center border border-stone-200 rounded text-sm"
+                    min="1"
+                    max={selectedBook?.page_count || undefined}
+                  />
+                  <span className="text-sm text-stone-500">
+                    {selectedBook?.page_count ? ` / ${selectedBook.page_count}` : ''}
+                  </span>
+                </div>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(currentPage + 1)}
+                  disabled={selectedBook?.page_count ? currentPage >= selectedBook.page_count : false}
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+
+              {/* Progress Bar */}
+              {bookProgress && selectedBook?.page_count && (
+                <div className="space-y-2">
+                  <Progress value={bookProgress.progress_percentage} className="w-full" />
+                  <div className="flex justify-between text-xs text-stone-500">
+                    <span>{Math.round(bookProgress.progress_percentage)}% complete</span>
+                    <span>Page {bookProgress.current_page} of {selectedBook.page_count}</span>
+                  </div>
+                </div>
+              )}
+              
               <div className="text-sm text-stone-600">
                 {selectedBook && (
                   <>
                     <div className="flex justify-between mb-1">
                       <span>Book:</span>
-                      <span className="text-right">{selectedBook.title}</span>
+                      <span className="text-right truncate">{selectedBook.title}</span>
                     </div>
                     <div className="flex justify-between mb-1">
                       <span>Author:</span>
                       <span>{selectedBook.author || 'Unknown'}</span>
                     </div>
-                    <div className="flex justify-between">
+                    <div className="flex justify-between mb-1">
                       <span>Total Pages:</span>
                       <span>{selectedBook.page_count || 'Unknown'}</span>
                     </div>
+                    {bookProgress && (
+                      <div className="flex justify-between">
+                        <span>Last Read:</span>
+                        <span>{new Date(bookProgress.last_read_at).toLocaleDateString()}</span>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
