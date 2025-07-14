@@ -6,7 +6,7 @@ import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
-import { useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 
@@ -41,7 +41,8 @@ interface Book {
 
 export const ReadBook = () => {
   const { user } = useUser();
-  const [searchParams] = useSearchParams();
+  const { bookId } = useParams<{ bookId?: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   
   const [isTTSActive, setIsTTSActive] = useState(false);
@@ -78,19 +79,15 @@ export const ReadBook = () => {
 
   // Handle URL parameters for book and page
   useEffect(() => {
-    const bookParam = searchParams.get('book');
-    const pageParam = searchParams.get('page');
-    
-    if (bookParam) {
-      setSelectedBookId(bookParam);
+    if (bookId) {
+      setSelectedBookId(bookId);
     } else if (books.length > 0 && !selectedBookId) {
-      setSelectedBookId(books[0].id);
+      // If no bookId in URL, select first book and navigate to it
+      const firstBookId = books[0].id;
+      setSelectedBookId(firstBookId);
+      navigate(`/read-book/${firstBookId}`, { replace: true });
     }
-    
-    if (pageParam) {
-      setCurrentPage(parseInt(pageParam, 10));
-    }
-  }, [books, selectedBookId, searchParams]);
+  }, [bookId, books, selectedBookId, navigate]);
 
   // Get PDF URL when book is selected
   useEffect(() => {
@@ -323,7 +320,11 @@ export const ReadBook = () => {
             <div className="mb-4">
               <select 
                 value={selectedBookId || ''} 
-                onChange={(e) => setSelectedBookId(e.target.value)}
+                onChange={(e) => {
+                  const newBookId = e.target.value;
+                  setSelectedBookId(newBookId);
+                  navigate(`/read-book/${newBookId}`);
+                }}
                 className="px-4 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
                 {books.map(book => (

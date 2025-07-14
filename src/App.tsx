@@ -32,7 +32,6 @@ const App = () => (
           <Route path="/" element={<ProtectedRoutes />}>
             <Route path="dashboard" element={<Dashboard />} />
             <Route index element={<Dashboard />} />
-            <Route path="read" element={<ReadBook />} />
             <Route path="read-book/:bookId" element={<ReadBook />} />
             <Route path="library" element={<Library />} />
             <Route path="collections" element={<Collections />} />

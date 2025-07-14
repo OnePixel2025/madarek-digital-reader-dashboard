@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 
 interface Book {
@@ -27,6 +28,7 @@ interface Book {
 }
 
 export const Library = () => {
+  const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState('all');
   const [viewMode, setViewMode] = useState('grid');
   const [searchQuery, setSearchQuery] = useState('');
@@ -93,6 +95,10 @@ export const Library = () => {
       'bg-gradient-to-br from-indigo-500 to-indigo-600'
     ];
     return colors[index % colors.length];
+  };
+
+  const handleBookClick = (bookId: string) => {
+    navigate(`/read-book/${bookId}`);
   };
 
   if (isLoading) {
@@ -190,7 +196,7 @@ export const Library = () => {
       ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {filteredBooks.map((book, index) => (
-            <Card key={book.id} className="border-stone-200 hover:shadow-lg transition-shadow cursor-pointer group">
+            <Card key={book.id} className="border-stone-200 hover:shadow-lg transition-shadow cursor-pointer group" onClick={() => handleBookClick(book.id)}>
               <CardContent className="p-4">
                 <div className="relative mb-4">
                   <div className={`w-full h-48 rounded-lg ${getBookCoverColor(index)} flex items-center justify-center relative overflow-hidden`}>
@@ -230,7 +236,7 @@ export const Library = () => {
       ) : (
         <div className="space-y-4">
           {filteredBooks.map((book, index) => (
-            <Card key={book.id} className="border-stone-200 hover:shadow-md transition-shadow cursor-pointer">
+            <Card key={book.id} className="border-stone-200 hover:shadow-md transition-shadow cursor-pointer" onClick={() => handleBookClick(book.id)}>
               <CardContent className="p-4">
                 <div className="flex items-center gap-4">
                   <div className={`w-16 h-20 rounded ${getBookCoverColor(index)} flex items-center justify-center flex-shrink-0 relative`}>
@@ -259,9 +265,6 @@ export const Library = () => {
                       
                       <div className="flex items-center gap-2 flex-shrink-0">
                         {getStatusIcon(book.status)}
-                        <Button variant="ghost" size="sm">
-                          Open
-                        </Button>
                       </div>
                     </div>
                     
