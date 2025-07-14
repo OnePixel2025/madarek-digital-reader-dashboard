@@ -171,7 +171,7 @@ export const Podcasts = () => {
 
       if (functionError) throw functionError;
 
-      // Add to local state for demo
+      // Add to local state for demo (until database types are updated)
       const newPodcast: Podcast = {
         id: Date.now().toString(),
         book_id: selectedBook,
@@ -186,6 +186,15 @@ export const Podcasts = () => {
       };
 
       setPodcasts(prev => [newPodcast, ...prev]);
+
+      // Simulate status update after a delay
+      setTimeout(() => {
+        setPodcasts(prev => prev.map(p => 
+          p.id === newPodcast.id 
+            ? { ...p, status: 'completed' as const }
+            : p
+        ));
+      }, 3000);
 
       toast({
         title: "Success",
