@@ -106,8 +106,6 @@ export const ReadBook = () => {
   const { user } = useUser();
   const { bookId } = useParams<{ bookId?: string }>();
   const navigate = useNavigate();
-  //const bookId = 'demo-book-id'; // Mock for demo
-  const navigate = (path: string, options?: any) => console.log('Navigate to:', path);
   const queryClient = useQueryClient();
   
   const [isTTSActive, setIsTTSActive] = useState(false);
