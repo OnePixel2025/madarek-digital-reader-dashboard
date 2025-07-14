@@ -11,46 +11,25 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 
 // PDF Viewer Component using iframe
-const PdfViewer = React.forwardRef<HTMLIFrameElement, { 
-  src?: string; 
-  style?: React.CSSProperties;
-  onPageChange?: (pageNumber: number) => void;
-}>(({ src, style, onPageChange }, ref) => {
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      // Listen for messages from PDF.js viewer
-      if (event.origin !== 'https://mozilla.github.io') return;
-      
-      try {
-        const data = event.data;
-        if (data && typeof data === 'object' && data.type === 'pagechanged') {
-          onPageChange?.(data.pageNumber);
-        }
-      } catch (error) {
-        console.error('Error handling PDF message:', error);
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [onPageChange]);
-
-  return (
-    <iframe
-      ref={ref}
-      src={src ? `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(src)}` : undefined}
-      title="PDF Viewer"
-      style={{
-        width: '100%',
-        height: '600px',
-        border: '1px solid #e5e7eb',
-        borderRadius: '0.5rem',
-        background: '#f9fafb',
-        ...style
-      }}
-    />
-  );
-});
+const PdfViewer = React.forwardRef<HTMLIFrameElement, { src?: string; style?: React.CSSProperties }>(
+  ({ src, style }, ref) => {
+    return (
+      <iframe
+        ref={ref}
+        src={src ? `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(src)}` : undefined}
+        title="PDF Viewer"
+        style={{
+          width: '100%',
+          height: '600px',
+          border: '1px solid #e5e7eb',
+          borderRadius: '0.5rem',
+          background: '#f9fafb',
+          ...style
+        }}
+      />
+    );
+  }
+);
 
 interface Book {
   id: string;
@@ -75,7 +54,6 @@ export const ReadBook = () => {
   const [loadingPdf, setLoadingPdf] = useState(false);
   const [readingSessionId, setReadingSessionId] = useState<string | null>(null);
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
-  const [pdfTotalPages, setPdfTotalPages] = useState<number | null>(null);
   const pdfViewerRef = useRef<HTMLIFrameElement | null>(null);
 
   // Fetch books from database
@@ -177,13 +155,6 @@ export const ReadBook = () => {
     enabled: !!selectedBookId && !!user?.id,
   });
 
-  // Set current page from book progress when available
-  useEffect(() => {
-    if (bookProgress?.current_page && bookProgress.current_page > 0) {
-      setCurrentPage(bookProgress.current_page);
-    }
-  }, [bookProgress]);
-
   // Start reading session mutation
   const startSessionMutation = useMutation({
     mutationFn: async ({ bookId, pageStart }: { bookId: string; pageStart: number }) => {
@@ -269,30 +240,6 @@ export const ReadBook = () => {
     }
   });
 
-  // Handle page change from PDF viewer
-  const handlePdfPageChange = (pageNumber: number) => {
-    console.log('PDF page changed to:', pageNumber);
-    setCurrentPage(pageNumber);
-  };
-
-  // Update page in PDF viewer when currentPage changes
-  const updatePdfViewerPage = (pageNumber: number) => {
-    if (pdfViewerRef.current && pdfViewerRef.current.contentWindow) {
-      pdfViewerRef.current.contentWindow.postMessage({
-        type: 'goToPage',
-        pageNumber: pageNumber
-      }, 'https://mozilla.github.io');
-    }
-  };
-
-  // Handle manual page navigation
-  const handlePageNavigation = (newPage: number) => {
-    const maxPage = pdfTotalPages || selectedBook?.page_count || 999;
-    const validPage = Math.max(1, Math.min(newPage, maxPage));
-    setCurrentPage(validPage);
-    updatePdfViewerPage(validPage);
-  };
-
   // Start reading session when book is selected
   useEffect(() => {
     if (selectedBookId && user?.id && !readingSessionId) {
@@ -307,15 +254,13 @@ export const ReadBook = () => {
   useEffect(() => {
     if (selectedBookId && currentPage > 0) {
       const selectedBook = books.find(book => book.id === selectedBookId);
-      const totalPages = pdfTotalPages || selectedBook?.page_count || undefined;
-      
       updateProgressMutation.mutate({
         bookId: selectedBookId,
         currentPage,
-        totalPages
+        totalPages: selectedBook?.page_count || undefined
       });
     }
-  }, [selectedBookId, currentPage, pdfTotalPages, books]);
+  }, [selectedBookId, currentPage, books]);
 
   // End session when component unmounts or book changes
   useEffect(() => {
@@ -329,25 +274,6 @@ export const ReadBook = () => {
     };
   }, [readingSessionId, currentPage]);
 
-  // Listen for PDF total pages info
-  useEffect(() => {
-    const handlePdfInfo = (event: MessageEvent) => {
-      if (event.origin !== 'https://mozilla.github.io') return;
-      
-      try {
-        const data = event.data;
-        if (data && typeof data === 'object' && data.type === 'documentloaded') {
-          setPdfTotalPages(data.numPages);
-        }
-      } catch (error) {
-        console.error('Error handling PDF info:', error);
-      }
-    };
-
-    window.addEventListener('message', handlePdfInfo);
-    return () => window.removeEventListener('message', handlePdfInfo);
-  }, []);
-
   const selectedBook = books.find(book => book.id === selectedBookId);
 
   const handleRetryLoad = () => {
@@ -359,6 +285,7 @@ export const ReadBook = () => {
       setPdfUrl(currentUrl);
     }, 100);
   };
+
 
   if (booksLoading) {
     return (
@@ -382,9 +309,6 @@ export const ReadBook = () => {
       </div>
     );
   }
-
-  const totalPages = pdfTotalPages || selectedBook?.page_count;
-  const progressPercentage = totalPages ? (currentPage / totalPages) * 100 : 0;
 
   return (
     <div className="flex gap-6 h-full">
@@ -451,7 +375,6 @@ export const ReadBook = () => {
                 <PdfViewer 
                   ref={pdfViewerRef}
                   src={pdfUrl}
-                  onPageChange={handlePdfPageChange}
                   style={{ width: '100%', height: '600px' }}
                 />
               </div>
@@ -537,7 +460,7 @@ export const ReadBook = () => {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => handlePageNavigation(currentPage - 1)}
+                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                   disabled={currentPage <= 1}
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -547,33 +470,33 @@ export const ReadBook = () => {
                   <input
                     type="number"
                     value={currentPage}
-                    onChange={(e) => handlePageNavigation(parseInt(e.target.value) || 1)}
+                    onChange={(e) => setCurrentPage(Math.max(1, parseInt(e.target.value) || 1))}
                     className="w-16 px-2 py-1 text-center border border-stone-200 rounded text-sm"
                     min="1"
-                    max={totalPages || undefined}
+                    max={selectedBook?.page_count || undefined}
                   />
                   <span className="text-sm text-stone-500">
-                    {totalPages ? ` / ${totalPages}` : ''}
+                    {selectedBook?.page_count ? ` / ${selectedBook.page_count}` : ''}
                   </span>
                 </div>
                 
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => handlePageNavigation(currentPage + 1)}
-                  disabled={totalPages ? currentPage >= totalPages : false}
+                  onClick={() => setCurrentPage(currentPage + 1)}
+                  disabled={selectedBook?.page_count ? currentPage >= selectedBook.page_count : false}
                 >
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>
 
               {/* Progress Bar */}
-              {totalPages && (
+              {bookProgress && selectedBook?.page_count && (
                 <div className="space-y-2">
-                  <Progress value={progressPercentage} className="w-full" />
+                  <Progress value={bookProgress.progress_percentage} className="w-full" />
                   <div className="flex justify-between text-xs text-stone-500">
-                    <span>{Math.round(progressPercentage)}% complete</span>
-                    <span>Page {currentPage} of {totalPages}</span>
+                    <span>{Math.round(bookProgress.progress_percentage)}% complete</span>
+                    <span>Page {bookProgress.current_page} of {selectedBook.page_count}</span>
                   </div>
                 </div>
               )}
@@ -591,11 +514,7 @@ export const ReadBook = () => {
                     </div>
                     <div className="flex justify-between mb-1">
                       <span>Total Pages:</span>
-                      <span>{totalPages || 'Loading...'}</span>
-                    </div>
-                    <div className="flex justify-between mb-1">
-                      <span>Current Page:</span>
-                      <span>{currentPage}</span>
+                      <span>{selectedBook.page_count || 'Unknown'}</span>
                     </div>
                     {bookProgress && (
                       <div className="flex justify-between">
