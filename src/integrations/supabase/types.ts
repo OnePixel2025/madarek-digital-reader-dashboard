@@ -193,6 +193,47 @@ export type Database = {
         }
         Relationships: []
       }
+      podcasts: {
+        Row: {
+          book_id: string
+          created_at: string
+          duration: number | null
+          id: string
+          status: string
+          title: string | null
+          updated_at: string
+          voice: string
+        }
+        Insert: {
+          book_id: string
+          created_at?: string
+          duration?: number | null
+          id?: string
+          status?: string
+          title?: string | null
+          updated_at?: string
+          voice?: string
+        }
+        Update: {
+          book_id?: string
+          created_at?: string
+          duration?: number | null
+          id?: string
+          status?: string
+          title?: string | null
+          updated_at?: string
+          voice?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "podcasts_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
