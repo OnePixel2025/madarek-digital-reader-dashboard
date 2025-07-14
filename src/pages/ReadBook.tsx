@@ -104,9 +104,9 @@ interface Book {
 
 export const ReadBook = () => {
   const { user } = useUser();
-  // const { bookId } = useParams<{ bookId?: string }>();
-  // const navigate = useNavigate();
-  const bookId = 'demo-book-id'; // Mock for demo
+  const { bookId } = useParams<{ bookId?: string }>();
+  const navigate = useNavigate();
+  //const bookId = 'demo-book-id'; // Mock for demo
   const navigate = (path: string, options?: any) => console.log('Navigate to:', path);
   const queryClient = useQueryClient();
   
@@ -124,21 +124,13 @@ export const ReadBook = () => {
   const progressUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Mock books data for demo
-  const mockBooks: Book[] = [
-    {
-      id: 'demo-book-1',
-      title: 'Sample Book',
-      author: 'Demo Author',
-      file_path: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-      page_count: 10
-    }
-  ];
+  
 
   // Fetch books from database
   const { data: books = [], isLoading: booksLoading } = useQuery({
     queryKey: ['books-for-reading'],
     queryFn: async () => {
-      return mockBooks as Book[];
+      return books as Book[];
     }
   });
 
