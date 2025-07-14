@@ -13,7 +13,7 @@ import { Podcasts } from "./pages/Podcasts";
 import { Uploads } from "./pages/Uploads";
 import { AIChat } from "./pages/AIChat";
 import { Settings } from "./pages/Settings";
-import { ReadingHistory } from "./pages/ReadingHistory";
+
 import { SignInPage } from "./pages/SignIn";
 import { SignUpPage } from "./pages/SignUp";
 import NotFound from "./pages/NotFound";
@@ -33,12 +33,13 @@ const App = () => (
             <Route path="dashboard" element={<Dashboard />} />
             <Route index element={<Dashboard />} />
             <Route path="read" element={<ReadBook />} />
+            <Route path="read-book/:bookId" element={<ReadBook />} />
             <Route path="library" element={<Library />} />
             <Route path="collections" element={<Collections />} />
             <Route path="podcasts" element={<Podcasts />} />
             <Route path="uploads" element={<Uploads />} />
             <Route path="ai-chat" element={<AIChat />} />
-            <Route path="history" element={<ReadingHistory />} />
+            
             <Route path="settings" element={<Settings />} />
           </Route>
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
