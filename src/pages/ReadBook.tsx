@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BookOpen, Bookmark, Mic, MicOff, MessageCircle, Brain, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -9,27 +9,7 @@ import { useUser } from '@clerk/clerk-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
-
-// PDF Viewer Component using iframe
-const PdfViewer = React.forwardRef<HTMLIFrameElement, { src?: string; style?: React.CSSProperties }>(
-  ({ src, style }, ref) => {
-    return (
-      <iframe
-        ref={ref}
-        src={src ? `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(src)}` : undefined}
-        title="PDF Viewer"
-        style={{
-          width: '100%',
-          height: '600px',
-          border: '1px solid #e5e7eb',
-          borderRadius: '0.5rem',
-          background: '#f9fafb',
-          ...style
-        }}
-      />
-    );
-  }
-);
+import { PDFViewerWithTracking } from '@/components/PDFViewerWithTracking';
 
 interface Book {
   id: string;
@@ -54,6 +34,7 @@ export const ReadBook = () => {
   const [loadingPdf, setLoadingPdf] = useState(false);
   const [readingSessionId, setReadingSessionId] = useState<string | null>(null);
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
+  const [totalPages, setTotalPages] = useState<number | null>(null);
   const pdfViewerRef = useRef<HTMLIFrameElement | null>(null);
 
   // Fetch books from database
@@ -250,17 +231,50 @@ export const ReadBook = () => {
     }
   }, [selectedBookId, user?.id]);
 
-  // Update progress when page changes
-  useEffect(() => {
-    if (selectedBookId && currentPage > 0) {
-      const selectedBook = books.find(book => book.id === selectedBookId);
-      updateProgressMutation.mutate({
-        bookId: selectedBookId,
-        currentPage,
-        totalPages: selectedBook?.page_count || undefined
-      });
+  // Debounced progress update to avoid too many calls
+  const debouncedUpdateProgress = useCallback(
+    (() => {
+      let timeoutId: NodeJS.Timeout;
+      return (bookId: string, page: number, total?: number) => {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+          updateProgressMutation.mutate({
+            bookId,
+            currentPage: page,
+            totalPages: total
+          });
+        }, 1000); // 1 second debounce
+      };
+    })(),
+    [updateProgressMutation]
+  );
+
+  // Handle page changes from PDF viewer
+  const handlePageChange = useCallback((newPage: number, newTotalPages: number) => {
+    setCurrentPage(newPage);
+    setTotalPages(newTotalPages);
+    
+    if (selectedBookId) {
+      debouncedUpdateProgress(selectedBookId, newPage, newTotalPages);
     }
-  }, [selectedBookId, currentPage, books]);
+  }, [selectedBookId, debouncedUpdateProgress]);
+
+  // Navigate PDF viewer to specific page
+  const navigateToPage = useCallback((pageNumber: number) => {
+    const viewer = pdfViewerRef.current as any;
+    if (viewer?.goToPage) {
+      viewer.goToPage(pageNumber);
+    }
+    setCurrentPage(pageNumber);
+  }, []);
+
+  // Set initial page from saved progress
+  useEffect(() => {
+    if (bookProgress && bookProgress.current_page > 1) {
+      setCurrentPage(bookProgress.current_page);
+      navigateToPage(bookProgress.current_page);
+    }
+  }, [bookProgress, navigateToPage]);
 
   // End session when component unmounts or book changes
   useEffect(() => {
@@ -372,10 +386,12 @@ export const ReadBook = () => {
               </div>
             ) : pdfUrl ? (
               <div className="w-full">
-                <PdfViewer 
+                <PDFViewerWithTracking 
                   ref={pdfViewerRef}
                   src={pdfUrl}
                   style={{ width: '100%', height: '600px' }}
+                  onPageChange={handlePageChange}
+                  initialPage={bookProgress?.current_page || 1}
                 />
               </div>
             ) : (
@@ -460,7 +476,7 @@ export const ReadBook = () => {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                  onClick={() => navigateToPage(Math.max(1, currentPage - 1))}
                   disabled={currentPage <= 1}
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -470,21 +486,24 @@ export const ReadBook = () => {
                   <input
                     type="number"
                     value={currentPage}
-                    onChange={(e) => setCurrentPage(Math.max(1, parseInt(e.target.value) || 1))}
+                    onChange={(e) => {
+                      const newPage = Math.max(1, parseInt(e.target.value) || 1);
+                      navigateToPage(newPage);
+                    }}
                     className="w-16 px-2 py-1 text-center border border-stone-200 rounded text-sm"
                     min="1"
-                    max={selectedBook?.page_count || undefined}
+                    max={totalPages || selectedBook?.page_count || undefined}
                   />
                   <span className="text-sm text-stone-500">
-                    {selectedBook?.page_count ? ` / ${selectedBook.page_count}` : ''}
+                    {totalPages ? ` / ${totalPages}` : selectedBook?.page_count ? ` / ${selectedBook.page_count}` : ''}
                   </span>
                 </div>
                 
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setCurrentPage(currentPage + 1)}
-                  disabled={selectedBook?.page_count ? currentPage >= selectedBook.page_count : false}
+                  onClick={() => navigateToPage(currentPage + 1)}
+                  disabled={totalPages ? currentPage >= totalPages : selectedBook?.page_count ? currentPage >= selectedBook.page_count : false}
                 >
                   <ChevronRight className="w-4 h-4" />
                 </Button>
