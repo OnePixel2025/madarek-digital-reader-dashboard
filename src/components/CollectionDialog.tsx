@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +37,20 @@ export function CollectionDialog({
   const [selectedColor, setSelectedColor] = useState(
     collection?.cover_color || coverColors[0]
   );
+
+  // Update form values when collection changes (for editing)
+  useEffect(() => {
+    if (collection) {
+      setName(collection.name);
+      setDescription(collection.description || '');
+      setSelectedColor(collection.cover_color || coverColors[0]);
+    } else {
+      // Reset form for creating new collection
+      setName('');
+      setDescription('');
+      setSelectedColor(coverColors[0]);
+    }
+  }, [collection]);
 
   const handleSave = () => {
     if (!name.trim()) return;
