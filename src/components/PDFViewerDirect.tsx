@@ -243,7 +243,7 @@ export const PDFViewerDirect: React.FC<PDFViewerDirectProps> = ({
       <div className="flex items-center justify-center p-8 border-2 border-red-200 rounded-lg bg-red-50 w-full h-96">
         <div className="text-center">
           <p className="text-red-600">Failed to load PDF</p>
-          <p>{pdfDoc}</p>
+          <p className="text-sm text-red-500">Please check the file path and try again.</p>
         </div>
       </div>
     );
