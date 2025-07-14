@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BookOpen, Bookmark, Mic, MicOff, MessageCircle, Brain, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -9,10 +9,9 @@ import { useUser } from '@clerk/clerk-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
-import { PDFViewerDirect } from '@/components/PDFViewerDirect';
 
-// Fallback iframe PDF viewer for compatibility
-const PdfViewerFallback = React.forwardRef<HTMLIFrameElement, { src?: string; style?: React.CSSProperties }>(
+// PDF Viewer Component using iframe
+const PdfViewer = React.forwardRef<HTMLIFrameElement, { src?: string; style?: React.CSSProperties }>(
   ({ src, style }, ref) => {
     return (
       <iframe
@@ -277,13 +276,6 @@ export const ReadBook = () => {
 
   const selectedBook = books.find(book => book.id === selectedBookId);
 
-  // Handle automatic page changes from PDF viewer
-  const handlePageChange = useCallback((page: number) => {
-    if (page !== currentPage) {
-      setCurrentPage(page);
-    }
-  }, [currentPage]);
-
   const handleRetryLoad = () => {
     // Force reload the PDF by clearing and resetting the URL
     const currentUrl = pdfUrl;
@@ -380,10 +372,9 @@ export const ReadBook = () => {
               </div>
             ) : pdfUrl ? (
               <div className="w-full">
-                <PDFViewerDirect 
+                <PdfViewer 
+                  ref={pdfViewerRef}
                   src={pdfUrl}
-                  currentPage={currentPage}
-                  onPageChange={handlePageChange}
                   style={{ width: '100%', height: '600px' }}
                 />
               </div>
