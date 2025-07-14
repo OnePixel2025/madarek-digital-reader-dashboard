@@ -49,6 +49,8 @@ export const Podcasts = () => {
   const [currentPodcast, setCurrentPodcast] = useState<Podcast | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState([75]);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [selectedBook, setSelectedBook] = useState<string>('');
   const [selectedVoice, setSelectedVoice] = useState('alloy');
@@ -68,6 +70,50 @@ export const Podcasts = () => {
     fetchPodcasts();
     fetchBooks();
   }, []);
+
+  // Setup audio element when currentPodcast changes
+  useEffect(() => {
+    if (currentPodcast && currentPodcast.status === 'completed') {
+      setupAudio();
+    }
+    return () => {
+      if (audioRef) {
+        audioRef.pause();
+        audioRef.removeEventListener('timeupdate', updateCurrentTime);
+        audioRef.removeEventListener('ended', handleAudioEnded);
+      }
+    };
+  }, [currentPodcast]);
+
+  // Update volume when volume state changes
+  useEffect(() => {
+    if (audioRef) {
+      audioRef.volume = volume[0] / 100;
+    }
+  }, [volume, audioRef]);
+
+  const setupAudio = () => {
+    // For demo purposes, we'll use a sample audio URL
+    // In production, this would fetch the actual audio from Supabase storage
+    const audio = new Audio('https://www.soundjay.com/misc/sounds/bell-ringing-05.wav');
+    
+    audio.addEventListener('timeupdate', updateCurrentTime);
+    audio.addEventListener('ended', handleAudioEnded);
+    audio.volume = volume[0] / 100;
+    
+    setAudioRef(audio);
+  };
+
+  const updateCurrentTime = () => {
+    if (audioRef) {
+      setCurrentTime(audioRef.currentTime);
+    }
+  };
+
+  const handleAudioEnded = () => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+  };
 
   const fetchPodcasts = async () => {
     // Using mock data for now until database types are updated
@@ -225,8 +271,37 @@ export const Podcasts = () => {
     }
   };
 
-  const handlePlayPause = () => {
-    setIsPlaying(!isPlaying);
+  const handlePlayPause = async () => {
+    if (!audioRef || !currentPodcast) return;
+
+    try {
+      if (isPlaying) {
+        audioRef.pause();
+        setIsPlaying(false);
+      } else {
+        await audioRef.play();
+        setIsPlaying(true);
+      }
+    } catch (error) {
+      console.error('Error playing audio:', error);
+      toast({
+        title: "Playback Error",
+        description: "Unable to play audio. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleSkipBackward = () => {
+    if (audioRef) {
+      audioRef.currentTime = Math.max(0, audioRef.currentTime - 10);
+    }
+  };
+
+  const handleSkipForward = () => {
+    if (audioRef) {
+      audioRef.currentTime = Math.min(audioRef.duration, audioRef.currentTime + 10);
+    }
   };
 
   const formatDuration = (seconds: number) => {
@@ -352,17 +427,25 @@ export const Podcasts = () => {
                   by {currentPodcast.author}
                 </p>
                 
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-sm text-stone-600">
-                    <span>00:00</span>
-                    <Progress value={0} className="flex-1 h-2" />
-                    <span>{formatDuration(currentPodcast.duration || 0)}</span>
-                  </div>
-                  
-                  <div className="flex items-center gap-3">
-                    <Button variant="outline" size="sm">
-                      <SkipBack className="w-4 h-4" />
-                    </Button>
+                 <div className="space-y-3">
+                   <div className="flex items-center gap-2 text-sm text-stone-600">
+                     <span>{formatDuration(currentTime)}</span>
+                     <Progress 
+                       value={audioRef ? (currentTime / (audioRef.duration || 1)) * 100 : 0} 
+                       className="flex-1 h-2" 
+                     />
+                     <span>{formatDuration(currentPodcast.duration || 0)}</span>
+                   </div>
+                   
+                   <div className="flex items-center gap-3">
+                     <Button 
+                       variant="outline" 
+                       size="sm" 
+                       onClick={handleSkipBackward}
+                       disabled={currentPodcast.status !== 'completed'}
+                     >
+                       <SkipBack className="w-4 h-4" />
+                     </Button>
                     
                     <Button 
                       onClick={handlePlayPause}
@@ -372,9 +455,14 @@ export const Podcasts = () => {
                       {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                     </Button>
                     
-                    <Button variant="outline" size="sm">
-                      <SkipForward className="w-4 h-4" />
-                    </Button>
+                     <Button 
+                       variant="outline" 
+                       size="sm" 
+                       onClick={handleSkipForward}
+                       disabled={currentPodcast.status !== 'completed'}
+                     >
+                       <SkipForward className="w-4 h-4" />
+                     </Button>
                     
                     <div className="flex items-center gap-2 ml-auto">
                       <Volume2 className="w-4 h-4 text-stone-600" />
