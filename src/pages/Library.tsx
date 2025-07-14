@@ -206,7 +206,7 @@ export const Library = () => {
                 
                 <div className="space-y-2">
                   <div className="flex items-start justify-between gap-2">
-                    <h3 className="font-medium text-stone-800 group-hover:text-emerald-700 transition-colors leading-tight">
+                    <h3 className="font-medium text-stone-800 group-hover:text-emerald-700 transition-colors leading-tight break-words">
                       {book.title}
                     </h3>
                     {getStatusIcon(book.status)}
@@ -246,7 +246,7 @@ export const Library = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-stone-800 hover:text-emerald-700 transition-colors">
+                        <h3 className="font-medium text-stone-800 hover:text-emerald-700 transition-colors break-words">
                           {book.title}
                         </h3>
                         <p className="text-sm text-stone-600 mb-2">{book.author || 'Unknown Author'}</p>
