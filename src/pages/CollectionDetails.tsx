@@ -53,7 +53,8 @@ export const CollectionDetails = () => {
     availableBooks, 
     loading: booksLoading,
     addBookToCollection,
-    removeBookFromCollection 
+    removeBookFromCollection,
+    refetch 
   } = useCollectionBooks(collectionId || '');
 
   // Find the current collection
@@ -120,11 +121,15 @@ export const CollectionDetails = () => {
     for (const bookId of bookIds) {
       await addBookToCollection(bookId);
     }
+    // Refetch the collection data to update immediately
+    await refetch();
     setIsAddBooksDialogOpen(false);
   };
 
   const handleRemoveBook = async (bookId) => {
     await removeBookFromCollection(bookId);
+    // Refetch the collection data to update immediately
+    await refetch();
   };
 
   return (

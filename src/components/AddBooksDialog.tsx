@@ -58,13 +58,13 @@ export function AddBooksDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[80vh] flex flex-col">
+      <DialogContent className="sm:max-w-lg h-[600px] flex flex-col">
         <DialogHeader className="shrink-0">
           <DialogTitle>Add Books to Collection</DialogTitle>
         </DialogHeader>
         
-        <div className="flex flex-col min-h-0 flex-1">
-          <div className="shrink-0 mb-4">
+        <div className="flex flex-col flex-1 min-h-0 space-y-4">
+          <div className="shrink-0">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
               <Input
@@ -82,7 +82,7 @@ export function AddBooksDialog({
                 {searchQuery ? 'No books found matching your search' : 'No books available to add'}
               </div>
             ) : (
-              <ScrollArea className="h-full">
+              <ScrollArea className="h-full max-h-[400px]">
                 <div className="space-y-3 pr-4">
                   {filteredBooks.map((book) => (
                     <div
