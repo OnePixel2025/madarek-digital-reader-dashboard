@@ -10,6 +10,9 @@ import { useUser } from '@clerk/clerk-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+import * as pdfjsLib from 'pdfjs-dist';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 // PDF Viewer Component using iframe
 const PdfViewer = React.forwardRef<HTMLIFrameElement, { src?: string; style?: React.CSSProperties }>(
@@ -64,6 +67,7 @@ export const ReadBook = () => {
   const [volume, setVolume] = useState(1);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [extractedText, setExtractedText] = useState<string | null>(null);
   const pdfViewerRef = useRef<HTMLIFrameElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -355,43 +359,83 @@ export const ReadBook = () => {
   };
 
   const handleGenerateTTS = async () => {
-    if (!selectedBookId) {
-      toast({
-        title: "No book selected",
-        description: "Please select a book to extract text.",
-        variant: "destructive",
-      });
-      return;
+  if (!selectedBookId || !pdfUrl) {
+    toast({
+      title: "No book selected",
+      description: "Please select a book to extract text.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  setTtsLoading(true);
+  try {
+    // Extract text from PDF using PDF.js
+    const extractedText = await extractTextFromPDF(pdfUrl);
+    
+    if (!extractedText || extractedText.trim().length === 0) {
+      throw new Error('No text could be extracted from the PDF');
     }
 
-    setTtsLoading(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('generate-book-tts', {
-        body: { bookId: selectedBookId }
-      });
+    // Log the extracted text to console
+    console.log('Extracted PDF text:', extractedText);
+    console.log('Book title:', selectedBook?.title);
+    console.log('Book author:', selectedBook?.author);
+    console.log('Text length:', extractedText.length, 'characters');
 
-      if (error) throw error;
+    // Here you can add TTS functionality or send to backend
+    // For now, we'll just show success message
+    toast({
+      title: "Text extracted successfully",
+      description: `Extracted ${extractedText.length} characters. Check browser console for full text.`,
+    });
 
-      // Log the extracted text to console
-      console.log('Extracted PDF text:', data.extractedText);
-      console.log('Book title:', data.bookTitle);
-      console.log('Book author:', data.bookAuthor);
+    // Optional: Store extracted text in state for further processing
+    // setExtractedText(extractedText);
+    
+  } catch (error) {
+    console.error('Error extracting PDF text:', error);
+    toast({
+      title: "Error extracting text",
+      description: error instanceof Error ? error.message : "Failed to extract PDF text. Please try again.",
+      variant: "destructive",
+    });
+  } finally {
+    setTtsLoading(false);
+  }
+};
 
-      toast({
-        title: "Text extracted",
-        description: "PDF text has been logged to console. Check browser dev tools.",
-      });
-    } catch (error) {
-      console.error('Error extracting PDF text:', error);
-      toast({
-        title: "Error extracting text",
-        description: error instanceof Error ? error.message : "Failed to extract PDF text. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setTtsLoading(false);
+  const extractTextFromPDF = async (pdfUrl: string): Promise<string> => {
+  try {
+    // Load the PDF document
+    const loadingTask = pdfjsLib.getDocument(pdfUrl);
+    const pdf = await loadingTask.promise;
+    
+    let fullText = '';
+    
+    // Extract text from each page
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      
+      // Combine all text items from the page
+      const pageText = textContent.items
+        .map((item: any) => item.str)
+        .join(' ');
+      
+      fullText += pageText + '\n\n';
+      
+      // Optional: Update progress or show which page is being processed
+      console.log(`Processed page ${pageNum} of ${pdf.numPages}`);
     }
-  };
+    
+    return fullText.trim();
+    
+  } catch (error) {
+    console.error('Error in extractTextFromPDF:', error);
+    throw new Error('Failed to extract text from PDF. The file might be corrupted or password-protected.');
+  }
+};
 
   const togglePlayPause = () => {
     if (!audioRef.current || !ttsAudio) return;
@@ -558,7 +602,7 @@ export const ReadBook = () => {
                   variant="outline" 
                   className="w-full justify-start"
                   onClick={handleGenerateTTS}
-                  disabled={ttsLoading || !selectedBookId}
+  disabled={ttsLoading || !selectedBookId || !pdfUrl}
                 >
                   <Mic className="w-4 h-4 mr-2" />
                   {ttsLoading ? "Generating Audio..." : "Text-to-Speech"}
