@@ -6,7 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useUser } from '@clerk/clerk-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 
@@ -24,15 +25,28 @@ interface BookContext {
   excerpt?: string;
 }
 
+interface Conversation {
+  id: string;
+  title: string;
+  book_id: string | null;
+  last_message_preview: string | null;
+  updated_at: string;
+}
+
 export const AIChat = () => {
-  const [searchParams] = useSearchParams();
+  const { user } = useUser();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryClient = useQueryClient();
+  
   const bookId = searchParams.get('bookId');
+  const conversationId = searchParams.get('conversationId');
   
   const [message, setMessage] = useState('');
   const [isVoiceMode, setIsVoiceMode] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(conversationId);
 
   // Fetch book details if bookId is provided
   const { data: book } = useQuery({
@@ -52,27 +66,126 @@ export const AIChat = () => {
     enabled: !!bookId
   });
 
+  // Fetch recent conversations
+  const { data: conversations = [], refetch: refetchConversations } = useQuery({
+    queryKey: ['recent-conversations', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [];
+      
+      const { data, error } = await supabase
+        .from('conversations')
+        .select(`
+          id,
+          title,
+          book_id,
+          last_message_preview,
+          updated_at,
+          books!inner(title)
+        `)
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false })
+        .limit(10);
+      
+      if (error) throw error;
+      return data as Conversation[];
+    },
+    enabled: !!user?.id
+  });
+
+  // Fetch conversation messages if conversationId is provided
+  const { data: existingMessages } = useQuery({
+    queryKey: ['conversation-messages', currentConversationId],
+    queryFn: async () => {
+      if (!currentConversationId || !user?.id) return [];
+      
+      const { data, error } = await supabase
+        .from('chat_messages')
+        .select('*')
+        .eq('conversation_id', currentConversationId)
+        .order('created_at', { ascending: true });
+      
+      if (error) throw error;
+      
+      return data.map(msg => ({
+        id: msg.id,
+        type: msg.role === 'user' ? 'user' : 'bot',
+        message: msg.content,
+        timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      })) as ChatMessage[];
+    },
+    enabled: !!currentConversationId && !!user?.id
+  });
+
+  // Create new conversation mutation
+  const createConversationMutation = useMutation({
+    mutationFn: async ({ title, bookId }: { title: string; bookId?: string }) => {
+      if (!user?.id) throw new Error('User not authenticated');
+      
+      const { data, error } = await supabase
+        .from('conversations')
+        .insert({
+          user_id: user.id,
+          book_id: bookId || null,
+          title,
+          last_message_preview: null
+        })
+        .select()
+        .single();
+      
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      setCurrentConversationId(data.id);
+      queryClient.invalidateQueries({ queryKey: ['recent-conversations'] });
+    }
+  });
+
+  // Save message mutation
+  const saveMessageMutation = useMutation({
+    mutationFn: async ({ conversationId, role, content }: { conversationId: string; role: string; content: string }) => {
+      const { error } = await supabase
+        .from('chat_messages')
+        .insert({
+          conversation_id: conversationId,
+          role,
+          content
+        });
+      
+      if (error) throw error;
+    }
+  });
+
+  // Load existing conversation messages
+  useEffect(() => {
+    if (existingMessages && existingMessages.length > 0) {
+      setChatMessages(existingMessages);
+    }
+  }, [existingMessages]);
+
   // Initialize chat with appropriate welcome message
   useEffect(() => {
-    if (book) {
-      setChatMessages([{
-        id: '1',
-        type: 'bot',
-        message: `Hello! I'm your AI reading assistant. I see you're interested in discussing "${book.title}"${book.author ? ` by ${book.author}` : ''}. What would you like to know about this book?`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }]);
-    } else if (!bookId) {
-      setChatMessages([{
-        id: '1',
-        type: 'bot',
-        message: 'Hello! I\'m your AI reading assistant. I can help you understand books, answer questions, and provide tutoring. Please select a book first, or ask me general reading-related questions.',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }]);
+    if (!currentConversationId && !existingMessages?.length) {
+      if (book) {
+        setChatMessages([{
+          id: '1',
+          type: 'bot',
+          message: `Hello! I'm your AI reading assistant. I see you're interested in discussing "${book.title}"${book.author ? ` by ${book.author}` : ''}. What would you like to know about this book?`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }]);
+      } else if (!bookId) {
+        setChatMessages([{
+          id: '1',
+          type: 'bot',
+          message: 'Hello! I\'m your AI reading assistant. I can help you understand books, answer questions, and provide tutoring. Please select a book first, or ask me general reading-related questions.',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }]);
+      }
     }
-  }, [book, bookId]);
+  }, [book, bookId, currentConversationId, existingMessages]);
 
   const handleSendMessage = async () => {
-    if (!message.trim()) return;
+    if (!message.trim() || !user?.id) return;
     
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
@@ -82,10 +195,34 @@ export const AIChat = () => {
     };
     
     setChatMessages(prev => [...prev, userMessage]);
+    const currentMessage = message;
     setMessage('');
     setIsLoading(true);
     
     try {
+      // Create conversation if it doesn't exist
+      let conversationToUse = currentConversationId;
+      if (!conversationToUse) {
+        const title = book ? `Chat about ${book.title}` : `General Chat - ${new Date().toLocaleDateString()}`;
+        const newConversation = await createConversationMutation.mutateAsync({ 
+          title, 
+          bookId: book?.id 
+        });
+        conversationToUse = newConversation.id;
+        
+        // Update URL with conversation ID
+        const newSearchParams = new URLSearchParams(searchParams);
+        newSearchParams.set('conversationId', newConversation.id);
+        setSearchParams(newSearchParams);
+      }
+      
+      // Save user message
+      await saveMessageMutation.mutateAsync({
+        conversationId: conversationToUse,
+        role: 'user',
+        content: currentMessage
+      });
+      
       const conversationHistory = chatMessages.map(msg => ({
         role: msg.type === 'user' ? 'user' : 'assistant',
         content: msg.message
@@ -93,7 +230,7 @@ export const AIChat = () => {
       
       const { data, error } = await supabase.functions.invoke('chat-with-book', {
         body: {
-          message: message,
+          message: currentMessage,
           bookContext: book ? {
             title: book.title,
             author: book.author,
@@ -113,6 +250,17 @@ export const AIChat = () => {
       };
       
       setChatMessages(prev => [...prev, botMessage]);
+      
+      // Save bot message
+      await saveMessageMutation.mutateAsync({
+        conversationId: conversationToUse,
+        role: 'assistant',
+        content: data.response
+      });
+      
+      // Refresh conversations list
+      refetchConversations();
+      
     } catch (error) {
       console.error('Error sending message:', error);
       toast({
@@ -123,6 +271,26 @@ export const AIChat = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleLoadConversation = (conversation: Conversation) => {
+    const newSearchParams = new URLSearchParams();
+    newSearchParams.set('conversationId', conversation.id);
+    if (conversation.book_id) {
+      newSearchParams.set('bookId', conversation.book_id);
+    }
+    setSearchParams(newSearchParams);
+    setCurrentConversationId(conversation.id);
+  };
+
+  const handleStartNewConversation = () => {
+    setCurrentConversationId(null);
+    setChatMessages([]);
+    const newSearchParams = new URLSearchParams();
+    if (bookId) {
+      newSearchParams.set('bookId', bookId);
+    }
+    setSearchParams(newSearchParams);
   };
 
   const toggleVoiceMode = () => {
@@ -268,12 +436,20 @@ export const AIChat = () => {
             <CardTitle className="text-stone-800">Quick Actions</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Button variant="outline" className="w-full justify-start">
+            <Button 
+              variant="outline" 
+              className="w-full justify-start"
+              onClick={() => window.open('/uploads', '_blank')}
+            >
               <Upload className="w-4 h-4 mr-2" />
               Upload Book for Chat
             </Button>
             
-            <Button variant="outline" className="w-full justify-start">
+            <Button 
+              variant="outline" 
+              className="w-full justify-start"
+              onClick={handleStartNewConversation}
+            >
               <MessageCircle className="w-4 h-4 mr-2" />
               Start New Conversation
             </Button>
@@ -291,35 +467,35 @@ export const AIChat = () => {
             <CardTitle className="text-stone-800">Recent Conversations</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="p-3 bg-stone-50 rounded-lg cursor-pointer hover:bg-stone-100 transition-colors">
-              <p className="text-sm font-medium text-stone-800 mb-1">
-                تاريخ السودان الحديث
+            {conversations.length === 0 ? (
+              <p className="text-sm text-stone-500 text-center py-4">
+                No conversations yet. Start chatting to see your history here!
               </p>
-              <p className="text-xs text-stone-600">
-                Discussion about colonial resistance
-              </p>
-              <p className="text-xs text-stone-500 mt-1">2 hours ago</p>
-            </div>
-            
-            <div className="p-3 bg-stone-50 rounded-lg cursor-pointer hover:bg-stone-100 transition-colors">
-              <p className="text-sm font-medium text-stone-800 mb-1">
-                الأدب السوداني المعاصر
-              </p>
-              <p className="text-xs text-stone-600">
-                Analysis of modern poetry themes
-              </p>
-              <p className="text-xs text-stone-500 mt-1">1 day ago</p>
-            </div>
-            
-            <div className="p-3 bg-stone-50 rounded-lg cursor-pointer hover:bg-stone-100 transition-colors">
-              <p className="text-sm font-medium text-stone-800 mb-1">
-                جغرافية السودان
-              </p>
-              <p className="text-xs text-stone-600">
-                Questions about climate regions
-              </p>
-              <p className="text-xs text-stone-500 mt-1">3 days ago</p>
-            </div>
+            ) : (
+              conversations.map((conversation) => (
+                <div 
+                  key={conversation.id}
+                  className="p-3 bg-stone-50 rounded-lg cursor-pointer hover:bg-stone-100 transition-colors"
+                  onClick={() => handleLoadConversation(conversation)}
+                >
+                  <p className="text-sm font-medium text-stone-800 mb-1">
+                    {conversation.title}
+                  </p>
+                  {conversation.last_message_preview && (
+                    <p className="text-xs text-stone-600 line-clamp-2">
+                      {conversation.last_message_preview}
+                    </p>
+                  )}
+                  <p className="text-xs text-stone-500 mt-1">
+                    {new Date(conversation.updated_at).toLocaleDateString()} at{' '}
+                    {new Date(conversation.updated_at).toLocaleTimeString([], { 
+                      hour: '2-digit', 
+                      minute: '2-digit' 
+                    })}
+                  </p>
+                </div>
+              ))
+            )}
           </CardContent>
         </Card>
 

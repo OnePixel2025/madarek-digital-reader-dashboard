@@ -121,6 +121,38 @@ export type Database = {
         }
         Relationships: []
       }
+      chat_messages: {
+        Row: {
+          content: string
+          conversation_id: string
+          created_at: string
+          id: string
+          role: string
+        }
+        Insert: {
+          content: string
+          conversation_id: string
+          created_at?: string
+          id?: string
+          role: string
+        }
+        Update: {
+          content?: string
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       collection_books: {
         Row: {
           added_at: string
@@ -188,6 +220,36 @@ export type Database = {
           id?: string
           is_favorite?: boolean
           name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      conversations: {
+        Row: {
+          book_id: string | null
+          created_at: string
+          id: string
+          last_message_preview: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          book_id?: string | null
+          created_at?: string
+          id?: string
+          last_message_preview?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          book_id?: string | null
+          created_at?: string
+          id?: string
+          last_message_preview?: string | null
+          title?: string
           updated_at?: string
           user_id?: string
         }
