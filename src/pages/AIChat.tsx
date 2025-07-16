@@ -1,41 +1,127 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MessageCircle, Mic, MicOff, Send, Upload, Bot, User as UserIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from '@/hooks/use-toast';
 
-const chatMessages = [
-  {
-    id: 1,
-    type: 'bot',
-    message: 'Hello! I\'m your AI reading assistant. I can help you understand books, answer questions, and provide tutoring. How can I help you today?',
-    timestamp: '10:30 AM'
-  },
-  {
-    id: 2,
-    type: 'user',
-    message: 'Can you explain the main themes in "تاريخ السودان الحديث"?',
-    timestamp: '10:32 AM'
-  },
-  {
-    id: 3,
-    type: 'bot',
-    message: 'The main themes in "تاريخ السودان الحديث" include:\n\n1. **Colonial Resistance** - The various movements against colonial rule\n2. **Cultural Identity** - How Sudanese culture evolved during modern times\n3. **Political Development** - The transition from colonial to independent governance\n4. **Social Transformation** - Changes in society during the modern period\n\nWould you like me to elaborate on any of these themes?',
-    timestamp: '10:33 AM'
-  }
-];
+interface ChatMessage {
+  id: string;
+  type: 'bot' | 'user';
+  message: string;
+  timestamp: string;
+}
+
+interface BookContext {
+  id: string;
+  title: string;
+  author: string | null;
+  excerpt?: string;
+}
 
 export const AIChat = () => {
+  const [searchParams] = useSearchParams();
+  const bookId = searchParams.get('bookId');
+  
   const [message, setMessage] = useState('');
   const [isVoiceMode, setIsVoiceMode] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSendMessage = () => {
-    if (message.trim()) {
-      console.log('Sending message:', message);
-      setMessage('');
+  // Fetch book details if bookId is provided
+  const { data: book } = useQuery({
+    queryKey: ['book-details', bookId],
+    queryFn: async () => {
+      if (!bookId) return null;
+      
+      const { data, error } = await supabase
+        .from('books')
+        .select('id, title, author')
+        .eq('id', bookId)
+        .single();
+      
+      if (error) throw error;
+      return data as BookContext;
+    },
+    enabled: !!bookId
+  });
+
+  // Initialize chat with appropriate welcome message
+  useEffect(() => {
+    if (book) {
+      setChatMessages([{
+        id: '1',
+        type: 'bot',
+        message: `Hello! I'm your AI reading assistant. I see you're interested in discussing "${book.title}"${book.author ? ` by ${book.author}` : ''}. What would you like to know about this book?`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }]);
+    } else if (!bookId) {
+      setChatMessages([{
+        id: '1',
+        type: 'bot',
+        message: 'Hello! I\'m your AI reading assistant. I can help you understand books, answer questions, and provide tutoring. Please select a book first, or ask me general reading-related questions.',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }]);
+    }
+  }, [book, bookId]);
+
+  const handleSendMessage = async () => {
+    if (!message.trim()) return;
+    
+    const userMessage: ChatMessage = {
+      id: Date.now().toString(),
+      type: 'user',
+      message: message,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    
+    setChatMessages(prev => [...prev, userMessage]);
+    setMessage('');
+    setIsLoading(true);
+    
+    try {
+      const conversationHistory = chatMessages.map(msg => ({
+        role: msg.type === 'user' ? 'user' : 'assistant',
+        content: msg.message
+      }));
+      
+      const { data, error } = await supabase.functions.invoke('chat-with-book', {
+        body: {
+          message: message,
+          bookContext: book ? {
+            title: book.title,
+            author: book.author,
+            excerpt: 'Book content not yet extracted' // TODO: Add extracted text
+          } : null,
+          conversationHistory
+        }
+      });
+      
+      if (error) throw error;
+      
+      const botMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        type: 'bot',
+        message: data.response,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      
+      setChatMessages(prev => [...prev, botMessage]);
+    } catch (error) {
+      console.error('Error sending message:', error);
+      toast({
+        title: "Error",
+        description: "Failed to send message. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -96,6 +182,23 @@ export const AIChat = () => {
                   )}
                 </div>
               ))}
+              
+              {isLoading && (
+                <div className="flex gap-3 justify-start">
+                  <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center flex-shrink-0">
+                    <Bot className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <div className="max-w-lg">
+                    <div className="p-3 rounded-lg bg-stone-100 text-stone-800">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-emerald-600 rounded-full animate-bounce"></div>
+                        <div className="w-2 h-2 bg-emerald-600 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                        <div className="w-2 h-2 bg-emerald-600 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             
             {/* Input Area */}
@@ -128,7 +231,7 @@ export const AIChat = () => {
                     }}
                   />
                   <div className="flex flex-col gap-2">
-                    <Button onClick={handleSendMessage} disabled={!message.trim()}>
+                    <Button onClick={handleSendMessage} disabled={!message.trim() || isLoading}>
                       <Send className="w-4 h-4" />
                     </Button>
                   </div>

@@ -769,7 +769,8 @@ const extractTextFromPDF = async (pdfUrl: string): Promise<string> => {
               <Button 
                 variant="outline" 
                 className="w-full justify-start"
-                onClick={() => setShowAIChat(!showAIChat)}
+                onClick={() => navigate(`/ai-chat?bookId=${selectedBookId}`)}
+                disabled={!selectedBookId}
               >
                 <MessageCircle className="w-4 h-4 mr-2" />
                 Chat about Book
