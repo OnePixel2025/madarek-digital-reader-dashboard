@@ -370,6 +370,8 @@ export const ReadBook = () => {
 
   setTtsLoading(true);
   try {
+    console.log('Starting text extraction from PDF:', pdfUrl);
+    
     // Extract text from PDF using PDF.js
     const extractedText = await extractTextFromPDF(pdfUrl);
     
@@ -378,20 +380,20 @@ export const ReadBook = () => {
     }
 
     // Log the extracted text to console
-    console.log('Extracted PDF text pdf.js:', extractedText);
+    console.log('=== EXTRACTED PDF TEXT ===');
     console.log('Book title:', selectedBook?.title);
     console.log('Book author:', selectedBook?.author);
     console.log('Text length:', extractedText.length, 'characters');
+    console.log('First 500 characters:', extractedText.substring(0, 500));
+    console.log('Full text:', extractedText);
 
-    // Here you can add TTS functionality or send to backend
-    // For now, we'll just show success message
+    // Store extracted text in state for further processing
+    setExtractedText(extractedText);
+    
     toast({
       title: "Text extracted successfully",
-      description: `Extracted ${extractedText.length} characters. Check browser console for full text.`,
+      description: `Extracted ${extractedText.length} characters from ${selectedBook?.title}. Check browser console for full text.`,
     });
-
-    // Optional: Store extracted text in state for further processing
-    // setExtractedText(extractedText);
     
   } catch (error) {
     console.error('Error extracting PDF text:', error);
@@ -405,35 +407,84 @@ export const ReadBook = () => {
   }
 };
 
-  const extractTextFromPDF = async (pdfUrl: string): Promise<string> => {
+// 4. Add this new function to extract text from PDF
+const extractTextFromPDF = async (pdfUrl: string): Promise<string> => {
   try {
-    // Load the PDF document
-    const loadingTask = pdfjsLib.getDocument(pdfUrl);
+    // First, try to fetch the PDF as ArrayBuffer to handle CORS issues
+    const response = await fetch(pdfUrl, {
+      mode: 'cors',
+      headers: {
+        'Accept': 'application/pdf',
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const arrayBuffer = await response.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+    
+    // Load the PDF document from the array buffer
+    const loadingTask = pdfjsLib.getDocument({
+      data: uint8Array,
+      cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+      cMapPacked: true,
+    });
+    
     const pdf = await loadingTask.promise;
+    console.log(`PDF loaded successfully. Pages: ${pdf.numPages}`);
     
     let fullText = '';
     
     // Extract text from each page
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-      const page = await pdf.getPage(pageNum);
-      const textContent = await page.getTextContent();
-      
-      // Combine all text items from the page
-      const pageText = textContent.items
-        .map((item: any) => item.str)
-        .join(' ');
-      
-      fullText += pageText + '\n\n';
-      
-      // Optional: Update progress or show which page is being processed
-      console.log(`Processed page ${pageNum} of ${pdf.numPages}`);
+      try {
+        const page = await pdf.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        
+        // Combine all text items from the page with proper spacing
+        const pageText = textContent.items
+          .map((item: any) => {
+            // Handle different types of text items
+            if (item.str) {
+              return item.str;
+            }
+            return '';
+          })
+          .filter(text => text.trim().length > 0)
+          .join(' ');
+        
+        if (pageText.trim()) {
+          fullText += `--- Page ${pageNum} ---\n${pageText}\n\n`;
+        }
+        
+        console.log(`Processed page ${pageNum} of ${pdf.numPages} - ${pageText.length} characters`);
+      } catch (pageError) {
+        console.warn(`Error processing page ${pageNum}:`, pageError);
+        fullText += `--- Page ${pageNum} (Error reading page) ---\n\n`;
+      }
+    }
+    
+    if (fullText.trim().length === 0) {
+      throw new Error('No readable text found in the PDF. It might be image-based or encrypted.');
     }
     
     return fullText.trim();
     
   } catch (error) {
     console.error('Error in extractTextFromPDF:', error);
-    throw new Error('Failed to extract text from PDF. The file might be corrupted or password-protected.');
+    
+    // Provide more specific error messages
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error('Unable to access PDF file. This might be due to CORS restrictions or network issues.');
+    } else if (error.message.includes('Invalid PDF')) {
+      throw new Error('The file is not a valid PDF or is corrupted.');
+    } else if (error.message.includes('password')) {
+      throw new Error('The PDF is password-protected and cannot be processed.');
+    } else {
+      throw new Error(`Failed to extract text from PDF: ${error.message}`);
+    }
   }
 };
 
