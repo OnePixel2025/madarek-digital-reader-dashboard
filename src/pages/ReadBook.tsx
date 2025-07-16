@@ -54,6 +54,9 @@ export const ReadBook = () => {
   const [loadingPdf, setLoadingPdf] = useState(false);
   const [readingSessionId, setReadingSessionId] = useState<string | null>(null);
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
+  const [bookSummary, setBookSummary] = useState<string | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
   const pdfViewerRef = useRef<HTMLIFrameElement | null>(null);
 
   // Fetch books from database
@@ -286,6 +289,42 @@ export const ReadBook = () => {
     }, 100);
   };
 
+  const handleGenerateSummary = async () => {
+    if (!selectedBookId) {
+      toast({
+        title: "No book selected",
+        description: "Please select a book to generate a summary.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSummaryLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-book-summary', {
+        body: { bookId: selectedBookId }
+      });
+
+      if (error) throw error;
+
+      setBookSummary(data.summary);
+      setShowSummary(true);
+      toast({
+        title: "Summary generated",
+        description: "Your book summary is ready!",
+      });
+    } catch (error) {
+      console.error('Error generating summary:', error);
+      toast({
+        title: "Error generating summary",
+        description: error instanceof Error ? error.message : "Failed to generate book summary. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
+
 
   if (booksLoading) {
     return (
@@ -432,9 +471,14 @@ export const ReadBook = () => {
             </h3>
             
             <div className="space-y-3">
-              <Button variant="outline" className="w-full justify-start">
+              <Button 
+                variant="outline" 
+                className="w-full justify-start"
+                onClick={handleGenerateSummary}
+                disabled={summaryLoading || !selectedBookId}
+              >
                 <Brain className="w-4 h-4 mr-2" />
-                Generate Summary
+                {summaryLoading ? "Generating..." : "Generate Summary"}
               </Button>
 
               <Button 
@@ -572,6 +616,33 @@ export const ReadBook = () => {
                   className="flex-1 px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
                 <Button size="sm">Send</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Book Summary Drawer */}
+      {showSummary && bookSummary && (
+        <div className="fixed inset-y-0 right-0 w-96 bg-white border-l border-stone-200 shadow-xl z-50 p-6 overflow-y-auto">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-lg font-semibold text-stone-800">Book Summary</h3>
+            <Button variant="ghost" size="sm" onClick={() => setShowSummary(false)}>
+              ×
+            </Button>
+          </div>
+          
+          <div className="space-y-4">
+            <div className="border-b border-stone-200 pb-4">
+              <h4 className="font-medium text-stone-800 mb-1">{selectedBook?.title}</h4>
+              {selectedBook?.author && (
+                <p className="text-sm text-stone-600">by {selectedBook.author}</p>
+              )}
+            </div>
+            
+            <div className="prose prose-sm max-w-none">
+              <div className="whitespace-pre-wrap text-sm text-stone-700 leading-relaxed">
+                {bookSummary}
               </div>
             </div>
           </div>
