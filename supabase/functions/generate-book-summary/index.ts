@@ -25,10 +25,10 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Fetch book details
+    // Fetch book details including language
     const { data: book, error: bookError } = await supabase
       .from('books')
-      .select('title, author, description')
+      .select('title, author, description, language')
       .eq('id', bookId)
       .single();
 
@@ -41,8 +41,18 @@ serve(async (req) => {
       throw new Error('Book not found');
     }
 
+    // Get the book language, default to Arabic if not specified
+    const bookLanguage = book.language || 'Arabic';
+    
+    // Prepare language-specific prompt
+    const languageInstruction = bookLanguage === 'Arabic' 
+      ? 'Please write the summary in Arabic language.' 
+      : `Please write the summary in ${bookLanguage} language.`;
+
     // Prepare prompt for OpenAI
-    const prompt = `Please generate a comprehensive summary of the book "${book.title}"${book.author ? ` by ${book.author}` : ''}. ${book.description ? `Here's the book description: ${book.description}` : ''}
+    const prompt = `${languageInstruction}
+
+Please generate a comprehensive summary of the book "${book.title}"${book.author ? ` by ${book.author}` : ''}. ${book.description ? `Here's the book description: ${book.description}` : ''}
 
 Please provide:
 1. A brief overview of the main themes and topics
@@ -57,7 +67,7 @@ Keep the summary informative but concise (around 300-500 words).`;
       throw new Error('OpenAI API key not configured');
     }
 
-    console.log('Generating summary for book:', book.title);
+    console.log('Generating summary for book:', book.title, 'in language:', bookLanguage);
 
     const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -70,7 +80,7 @@ Keep the summary informative but concise (around 300-500 words).`;
         messages: [
           {
             role: 'system',
-            content: 'You are a helpful assistant that creates insightful book summaries. Focus on the key themes, main ideas, and practical takeaways that would be valuable for readers.'
+            content: `You are a helpful assistant that creates insightful book summaries. Focus on the key themes, main ideas, and practical takeaways that would be valuable for readers. Always respond in the language requested by the user.`
           },
           {
             role: 'user',
