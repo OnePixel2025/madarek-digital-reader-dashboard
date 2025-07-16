@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BookOpen, Bookmark, Mic, MicOff, MessageCircle, Brain, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
+import { BookOpen, Bookmark, Mic, MicOff, MessageCircle, Brain, Settings, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -56,8 +57,20 @@ export const ReadBook = () => {
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
   const [bookSummary, setBookSummary] = useState<string | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
-  const [showSummary, setShowSummary] = useState(false);
+  const [showSummaryDialog, setShowSummaryDialog] = useState(false);
   const pdfViewerRef = useRef<HTMLIFrameElement | null>(null);
+
+  // Load summary from localStorage when book changes
+  useEffect(() => {
+    if (selectedBookId) {
+      const savedSummary = localStorage.getItem(`book-summary-${selectedBookId}`);
+      if (savedSummary) {
+        setBookSummary(savedSummary);
+      } else {
+        setBookSummary(null);
+      }
+    }
+  }, [selectedBookId]);
 
   // Fetch books from database
   const { data: books = [], isLoading: booksLoading } = useQuery({
@@ -307,8 +320,11 @@ export const ReadBook = () => {
 
       if (error) throw error;
 
+      // Save summary to localStorage
+      localStorage.setItem(`book-summary-${selectedBookId}`, data.summary);
       setBookSummary(data.summary);
-      setShowSummary(true);
+      setShowSummaryDialog(true);
+      
       toast({
         title: "Summary generated",
         description: "Your book summary is ready!",
@@ -322,6 +338,12 @@ export const ReadBook = () => {
       });
     } finally {
       setSummaryLoading(false);
+    }
+  };
+
+  const handleViewSummary = () => {
+    if (bookSummary) {
+      setShowSummaryDialog(true);
     }
   };
 
@@ -471,15 +493,26 @@ export const ReadBook = () => {
             </h3>
             
             <div className="space-y-3">
-              <Button 
-                variant="outline" 
-                className="w-full justify-start"
-                onClick={handleGenerateSummary}
-                disabled={summaryLoading || !selectedBookId}
-              >
-                <Brain className="w-4 h-4 mr-2" />
-                {summaryLoading ? "Generating..." : "Generate Summary"}
-              </Button>
+              {bookSummary ? (
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start"
+                  onClick={handleViewSummary}
+                >
+                  <Brain className="w-4 h-4 mr-2" />
+                  View Summary
+                </Button>
+              ) : (
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start"
+                  onClick={handleGenerateSummary}
+                  disabled={summaryLoading || !selectedBookId}
+                >
+                  <Brain className="w-4 h-4 mr-2" />
+                  {summaryLoading ? "Generating..." : "Generate Summary"}
+                </Button>
+              )}
 
               <Button 
                 variant="outline" 
@@ -622,15 +655,15 @@ export const ReadBook = () => {
         </div>
       )}
 
-      {/* Book Summary Drawer */}
-      {showSummary && bookSummary && (
-        <div className="fixed inset-y-0 right-0 w-96 bg-white border-l border-stone-200 shadow-xl z-50 p-6 overflow-y-auto">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-stone-800">Book Summary</h3>
-            <Button variant="ghost" size="sm" onClick={() => setShowSummary(false)}>
-              ×
-            </Button>
-          </div>
+      {/* Book Summary Dialog */}
+      <Dialog open={showSummaryDialog} onOpenChange={setShowSummaryDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Brain className="w-5 h-5" />
+              Book Summary
+            </DialogTitle>
+          </DialogHeader>
           
           <div className="space-y-4">
             <div className="border-b border-stone-200 pb-4">
@@ -646,8 +679,8 @@ export const ReadBook = () => {
               </div>
             </div>
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
