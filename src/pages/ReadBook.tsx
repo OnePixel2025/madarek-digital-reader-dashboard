@@ -378,7 +378,7 @@ export const ReadBook = () => {
     }
 
     // Log the extracted text to console
-    console.log('Extracted PDF text:', extractedText);
+    console.log('Extracted PDF text pdf.js:', extractedText);
     console.log('Book title:', selectedBook?.title);
     console.log('Book author:', selectedBook?.author);
     console.log('Text length:', extractedText.length, 'characters');
