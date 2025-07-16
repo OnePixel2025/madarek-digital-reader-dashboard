@@ -358,7 +358,7 @@ export const ReadBook = () => {
     if (!selectedBookId) {
       toast({
         title: "No book selected",
-        description: "Please select a book to generate audio.",
+        description: "Please select a book to extract text.",
         variant: "destructive",
       });
       return;
@@ -372,30 +372,20 @@ export const ReadBook = () => {
 
       if (error) throw error;
 
-      // Create audio blob from base64
-      const audioBlob = new Blob(
-        [Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0))],
-        { type: 'audio/mp3' }
-      );
-      const audioUrl = URL.createObjectURL(audioBlob);
-      setTtsAudio(audioUrl);
-      
-      // Set up audio element
-      if (audioRef.current) {
-        audioRef.current.src = audioUrl;
-        audioRef.current.volume = volume;
-      }
+      // Log the extracted text to console
+      console.log('Extracted PDF text:', data.extractedText);
+      console.log('Book title:', data.bookTitle);
+      console.log('Book author:', data.bookAuthor);
 
-      setIsTTSActive(true);
       toast({
-        title: "Audio generated",
-        description: "Your book audio is ready to play!",
+        title: "Text extracted",
+        description: "PDF text has been logged to console. Check browser dev tools.",
       });
     } catch (error) {
-      console.error('Error generating TTS:', error);
+      console.error('Error extracting PDF text:', error);
       toast({
-        title: "Error generating audio",
-        description: error instanceof Error ? error.message : "Failed to generate book audio. Please try again.",
+        title: "Error extracting text",
+        description: error instanceof Error ? error.message : "Failed to extract PDF text. Please try again.",
         variant: "destructive",
       });
     } finally {

@@ -66,54 +66,15 @@ serve(async (req) => {
     // In a real implementation, you'd use pdf-parse or similar library
     const extractedText = `This is the beginning of "${book.title}"${book.author ? ` by ${book.author}` : ''}. The full text extraction from PDF would be implemented here using a proper PDF parsing library. This is a demonstration of the text-to-speech functionality.`;
 
-    // Limit text length for TTS (OpenAI has limits)
-    const maxLength = 4000; // Adjust based on your needs
-    const textToConvert = extractedText.length > maxLength 
-      ? extractedText.substring(0, maxLength) + "..."
-      : extractedText;
-
-    // Call OpenAI TTS API
-    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-    if (!openAIApiKey) {
-      throw new Error('OpenAI API key not configured');
-    }
-
-    console.log('Converting text to speech...');
-
-    const ttsResponse = await fetch('https://api.openai.com/v1/audio/speech', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openAIApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'tts-1',
-        input: textToConvert,
-        voice: 'alloy', // You can make this configurable
-        response_format: 'mp3',
-      }),
-    });
-
-    if (!ttsResponse.ok) {
-      const errorData = await ttsResponse.text();
-      console.error('OpenAI TTS API error:', errorData);
-      throw new Error('Failed to generate speech');
-    }
-
-    // Convert audio to base64
-    const audioArrayBuffer = await ttsResponse.arrayBuffer();
-    const base64Audio = btoa(
-      String.fromCharCode(...new Uint8Array(audioArrayBuffer))
-    );
-
-    console.log('TTS audio generated successfully');
+    // Instead of TTS, just log and return the extracted text
+    console.log('Extracted PDF text:', extractedText);
 
     return new Response(
       JSON.stringify({ 
-        audioContent: base64Audio,
+        extractedText: extractedText,
         bookTitle: book.title,
         bookAuthor: book.author,
-        textConverted: textToConvert
+        message: 'PDF text extracted successfully (TTS disabled for debugging)'
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
