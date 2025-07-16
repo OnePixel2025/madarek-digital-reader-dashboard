@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BookOpen, Bookmark, Mic, MicOff, MessageCircle, Brain, Settings, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { BookOpen, Bookmark, Mic, MicOff, MessageCircle, Brain, Settings, ChevronLeft, ChevronRight, X, Play, Pause, Volume2, VolumeX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -58,7 +58,14 @@ export const ReadBook = () => {
   const [bookSummary, setBookSummary] = useState<string | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [showSummaryDialog, setShowSummaryDialog] = useState(false);
+  const [ttsAudio, setTtsAudio] = useState<string | null>(null);
+  const [ttsLoading, setTtsLoading] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [volume, setVolume] = useState(1);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   const pdfViewerRef = useRef<HTMLIFrameElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Load summary from localStorage when book changes
   useEffect(() => {
@@ -347,6 +354,100 @@ export const ReadBook = () => {
     }
   };
 
+  const handleGenerateTTS = async () => {
+    if (!selectedBookId) {
+      toast({
+        title: "No book selected",
+        description: "Please select a book to generate audio.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setTtsLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-book-tts', {
+        body: { bookId: selectedBookId }
+      });
+
+      if (error) throw error;
+
+      // Create audio blob from base64
+      const audioBlob = new Blob(
+        [Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0))],
+        { type: 'audio/mp3' }
+      );
+      const audioUrl = URL.createObjectURL(audioBlob);
+      setTtsAudio(audioUrl);
+      
+      // Set up audio element
+      if (audioRef.current) {
+        audioRef.current.src = audioUrl;
+        audioRef.current.volume = volume;
+      }
+
+      setIsTTSActive(true);
+      toast({
+        title: "Audio generated",
+        description: "Your book audio is ready to play!",
+      });
+    } catch (error) {
+      console.error('Error generating TTS:', error);
+      toast({
+        title: "Error generating audio",
+        description: error instanceof Error ? error.message : "Failed to generate book audio. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setTtsLoading(false);
+    }
+  };
+
+  const togglePlayPause = () => {
+    if (!audioRef.current || !ttsAudio) return;
+
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current.play();
+      setIsPlaying(true);
+    }
+  };
+
+  const handleVolumeChange = (newVolume: number) => {
+    setVolume(newVolume);
+    if (audioRef.current) {
+      audioRef.current.volume = newVolume;
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Audio event handlers
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const handleDurationChange = () => setDuration(audio.duration);
+    const handleEnded = () => setIsPlaying(false);
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('durationchange', handleDurationChange);
+    audio.addEventListener('ended', handleEnded);
+
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('durationchange', handleDurationChange);
+      audio.removeEventListener('ended', handleEnded);
+    };
+  }, [ttsAudio]);
+
 
   if (booksLoading) {
     return (
@@ -462,14 +563,80 @@ export const ReadBook = () => {
             </h3>
             
             <div className="space-y-3">
-              <Button 
-                variant={isTTSActive ? "default" : "outline"} 
-                className="w-full justify-start"
-                onClick={() => setIsTTSActive(!isTTSActive)}
-              >
-                {isTTSActive ? <MicOff className="w-4 h-4 mr-2" /> : <Mic className="w-4 h-4 mr-2" />}
-                {isTTSActive ? "Stop Reading" : "Text-to-Speech"}
-              </Button>
+              {!isTTSActive ? (
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start"
+                  onClick={handleGenerateTTS}
+                  disabled={ttsLoading || !selectedBookId}
+                >
+                  <Mic className="w-4 h-4 mr-2" />
+                  {ttsLoading ? "Generating Audio..." : "Text-to-Speech"}
+                </Button>
+              ) : (
+                <div className="space-y-3">
+                  <Button 
+                    variant="default" 
+                    className="w-full justify-start"
+                    onClick={togglePlayPause}
+                    disabled={!ttsAudio}
+                  >
+                    {isPlaying ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
+                    {isPlaying ? "Pause Audio" : "Play Audio"}
+                  </Button>
+                  
+                  {/* Audio Controls */}
+                  {ttsAudio && (
+                    <div className="space-y-2 p-3 bg-stone-50 rounded-lg">
+                      {/* Progress Bar */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-stone-500">
+                          <span>{formatTime(currentTime)}</span>
+                          <span>{formatTime(duration)}</span>
+                        </div>
+                        <div className="w-full bg-stone-200 rounded-full h-1">
+                          <div 
+                            className="bg-emerald-600 h-1 rounded-full transition-all"
+                            style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* Volume Control */}
+                      <div className="flex items-center gap-2">
+                        {volume > 0 ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                        <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.1"
+                          value={volume}
+                          onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+                          className="flex-1 h-1 bg-stone-200 rounded-lg appearance-none cursor-pointer"
+                        />
+                      </div>
+                      
+                      {/* Stop Button */}
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="w-full"
+                        onClick={() => {
+                          setIsTTSActive(false);
+                          setIsPlaying(false);
+                          if (audioRef.current) {
+                            audioRef.current.pause();
+                            audioRef.current.currentTime = 0;
+                          }
+                        }}
+                      >
+                        <MicOff className="w-4 h-4 mr-2" />
+                        Stop Audio
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <Button variant="outline" className="w-full justify-start">
                 <Bookmark className="w-4 h-4 mr-2" />
@@ -681,6 +848,9 @@ export const ReadBook = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Hidden Audio Element */}
+      <audio ref={audioRef} />
     </div>
   );
 };
