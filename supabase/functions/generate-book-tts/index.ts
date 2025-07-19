@@ -15,7 +15,7 @@ serve(async (req) => {
   }
 
   try {
-    const { bookId, text, voice = 'alloy' } = await req.json();
+    const { bookId, text, voice = 'Aria' } = await req.json();
     
     if (!bookId) {
       throw new Error('Book ID is required');
@@ -32,24 +32,54 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Generate speech from text using OpenAI TTS
-    const response = await fetch('https://api.openai.com/v1/audio/speech', {
+    // Map voice names to ElevenLabs voice IDs
+    const voiceMap: Record<string, string> = {
+      'Aria': '9BWtsMINqrJLrRacOk9x',
+      'Roger': 'CwhRBWXzGAHq8TQ4Fs17',
+      'Sarah': 'EXAVITQu4vr4xnSDxMaL',
+      'Laura': 'FGY2WhTYpPnrIDTdsKH5',
+      'Charlie': 'IKne3meq5aSn9XLyUdCD',
+      'George': 'JBFqnCBsd6RMkjVDRZzb',
+      'Callum': 'N2lVS1w4EtoT3dr4eOWO',
+      'River': 'SAz9YHcvj6GT2YYXdXww',
+      'Liam': 'TX3LPaxmHKxFdv7VOQHJ',
+      'Charlotte': 'XB0fDUnXU5powFXDhCwa',
+      'Alice': 'Xb7hH8MSUJpSbSDYk0k2',
+      'Matilda': 'XrExE9yKIg1WjnnlVkGX',
+      'Will': 'bIHbv24MWmeRgasZH58o',
+      'Jessica': 'cgSgspJ2msm6clMCkdW9',
+      'Eric': 'cjVigY5qzO86Huf0OWal',
+      'Chris': 'iP95p4xoKVk53GoZ742B',
+      'Brian': 'nPczCjzI2devNBz1zQrb',
+      'Daniel': 'onwK4e9ZLuTAKqWW03F9',
+      'Lily': 'pFZP5JQG7iQjIQuC4Bku',
+      'Bill': 'pqHfZKP75CvOlQylNhV4'
+    };
+
+    const voiceId = voiceMap[voice] || voiceMap['Aria']; // Default to Aria
+
+    // Generate speech from text using ElevenLabs TTS
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
+        'xi-api-key': Deno.env.get('ELEVENLABS_API_KEY'),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'tts-1',
-        input: text,
-        voice: voice,
-        response_format: 'mp3',
+        text: text,
+        model_id: 'eleven_multilingual_v2',
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+          style: 0.0,
+          use_speaker_boost: true
+        }
       }),
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error?.message || 'Failed to generate speech with OpenAI TTS');
+      const error = await response.text();
+      throw new Error(`Failed to generate speech with ElevenLabs TTS: ${error}`);
     }
 
     // Get the response and convert to buffer

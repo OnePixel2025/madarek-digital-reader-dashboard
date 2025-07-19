@@ -68,6 +68,7 @@ export const ReadBook = () => {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [extractedText, setExtractedText] = useState<string | null>(null);
+  const [selectedVoice, setSelectedVoice] = useState('Aria');
   const pdfViewerRef = useRef<HTMLIFrameElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -385,12 +386,12 @@ export const ReadBook = () => {
       // Limit text for TTS (first 5000 characters for better performance)
       const textForTTS = extractedText.substring(0, 5000);
       
-      // Generate TTS audio using the updated generate-book-tts edge function
+      // Generate TTS audio using ElevenLabs
       const { data, error } = await supabase.functions.invoke('generate-book-tts', {
         body: { 
           bookId: selectedBookId,
           text: textForTTS,
-          voice: 'en-US-Neural2-D' // Use Google Cloud TTS voice
+          voice: selectedVoice // Use selected ElevenLabs voice
         }
       });
 
@@ -617,6 +618,38 @@ const extractTextFromPDF = async (bookId: string): Promise<string> => {
             </h3>
             
             <div className="space-y-3">
+              {/* Voice Selection */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-stone-700">Voice</label>
+                <select 
+                  value={selectedVoice} 
+                  onChange={(e) => setSelectedVoice(e.target.value)}
+                  className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                  disabled={ttsLoading || isTTSActive}
+                >
+                  <option value="Aria">Aria (Female)</option>
+                  <option value="Roger">Roger (Male)</option>
+                  <option value="Sarah">Sarah (Female)</option>
+                  <option value="Laura">Laura (Female)</option>
+                  <option value="Charlie">Charlie (Male)</option>
+                  <option value="George">George (Male)</option>
+                  <option value="Callum">Callum (Male)</option>
+                  <option value="River">River (Neutral)</option>
+                  <option value="Liam">Liam (Male)</option>
+                  <option value="Charlotte">Charlotte (Female)</option>
+                  <option value="Alice">Alice (Female)</option>
+                  <option value="Matilda">Matilda (Female)</option>
+                  <option value="Will">Will (Male)</option>
+                  <option value="Jessica">Jessica (Female)</option>
+                  <option value="Eric">Eric (Male)</option>
+                  <option value="Chris">Chris (Male)</option>
+                  <option value="Brian">Brian (Male)</option>
+                  <option value="Daniel">Daniel (Male)</option>
+                  <option value="Lily">Lily (Female)</option>
+                  <option value="Bill">Bill (Male)</option>
+                </select>
+              </div>
+
               {!isTTSActive ? (
                 <Button 
                   variant="outline" 
@@ -625,7 +658,7 @@ const extractTextFromPDF = async (bookId: string): Promise<string> => {
                   disabled={ttsLoading || !selectedBookId}
                 >
                   <Mic className="w-4 h-4 mr-2" />
-                  {ttsLoading ? "Generating Audio..." : "Text-to-Speech"}
+                  {ttsLoading ? "Generating Audio..." : "Generate Audio with ElevenLabs"}
                 </Button>
               ) : (
                 <div className="space-y-3">
