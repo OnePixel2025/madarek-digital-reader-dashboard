@@ -359,7 +359,7 @@ export const ReadBook = () => {
   };
 
   const handleGenerateTTS = async () => {
-    if (!selectedBookId || !pdfUrl) {
+    if (!selectedBookId) {
       toast({
         title: "No book selected",
         description: "Please select a book to generate audio.",
@@ -370,10 +370,10 @@ export const ReadBook = () => {
 
     setTtsLoading(true);
     try {
-      console.log('Starting text extraction from PDF:', pdfUrl);
+      console.log('Starting server-side text extraction for book:', selectedBookId);
       
-      // Extract text from PDF using PDF.js
-      const extractedText = await extractTextFromPDF(pdfUrl);
+      // Extract text from PDF using server-side extraction
+      const extractedText = await extractTextFromPDF(selectedBookId);
       
       if (!extractedText || extractedText.trim().length === 0) {
         throw new Error('No text could be extracted from the PDF');
@@ -382,8 +382,8 @@ export const ReadBook = () => {
       console.log('Text extracted successfully, generating audio...');
       setExtractedText(extractedText);
       
-      // Limit text for TTS (first 3000 characters for better performance)
-      const textForTTS = extractedText.substring(0, 3000);
+      // Limit text for TTS (first 5000 characters for better performance)
+      const textForTTS = extractedText.substring(0, 5000);
       
       // Generate TTS audio using the updated generate-book-tts edge function
       const { data, error } = await supabase.functions.invoke('generate-book-tts', {
@@ -426,85 +426,34 @@ export const ReadBook = () => {
     }
   };
 
-// Extract text from PDF function
-const extractTextFromPDF = async (pdfUrl: string): Promise<string> => {
+// Extract text from PDF using server-side extraction
+const extractTextFromPDF = async (bookId: string): Promise<string> => {
   try {
-    // First, try to fetch the PDF as ArrayBuffer to handle CORS issues
-    const response = await fetch(pdfUrl, {
-      mode: 'cors',
-      headers: {
-        'Accept': 'application/pdf',
-      }
+    console.log('Calling server-side text extraction for book:', bookId);
+    
+    const { data, error } = await supabase.functions.invoke('extract-pdf-text', {
+      body: { bookId }
     });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+
+    if (error) {
+      console.error('Server-side extraction error:', error);
+      throw new Error(error.message || 'Failed to extract text from PDF');
     }
-    
-    const arrayBuffer = await response.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
-    
-    // Load the PDF document from the array buffer
-    const loadingTask = pdfjsLib.getDocument({
-      data: uint8Array,
-      cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/cmaps/`,
-      cMapPacked: true,
+
+    if (!data?.text) {
+      throw new Error('No text was extracted from the PDF');
+    }
+
+    console.log(`Text extraction ${data.cached ? 'retrieved from cache' : 'completed'}:`, {
+      textLength: data.text.length,
+      pageCount: data.pageCount,
+      cached: data.cached
     });
-    
-    const pdf = await loadingTask.promise;
-    console.log(`PDF loaded successfully. Pages: ${pdf.numPages}`);
-    
-    let fullText = '';
-    
-    // Extract text from first 5 pages only for performance
-    const maxPages = Math.min(pdf.numPages, 5);
-    
-    for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
-      try {
-        const page = await pdf.getPage(pageNum);
-        const textContent = await page.getTextContent();
-        
-        // Combine all text items from the page with proper spacing
-        const pageText = textContent.items
-          .map((item: any) => {
-            // Handle different types of text items
-            if (item.str) {
-              return item.str;
-            }
-            return '';
-          })
-          .filter(text => text.trim().length > 0)
-          .join(' ');
-        
-        if (pageText.trim()) {
-          fullText += `${pageText} `;
-        }
-        
-        console.log(`Processed page ${pageNum} of ${maxPages} - ${pageText.length} characters`);
-      } catch (pageError) {
-        console.warn(`Error processing page ${pageNum}:`, pageError);
-      }
-    }
-    
-    if (fullText.trim().length === 0) {
-      throw new Error('No readable text found in the PDF. It might be image-based or encrypted.');
-    }
-    
-    return fullText.trim();
-    
+
+    return data.text;
   } catch (error) {
-    console.error('Error in extractTextFromPDF:', error);
-    
-    // Provide more specific error messages
-    if (error instanceof TypeError && error.message.includes('fetch')) {
-      throw new Error('Unable to access PDF file. This might be due to CORS restrictions or network issues.');
-    } else if (error.message.includes('Invalid PDF')) {
-      throw new Error('The file is not a valid PDF or is corrupted.');
-    } else if (error.message.includes('password')) {
-      throw new Error('The PDF is password-protected and cannot be processed.');
-    } else {
-      throw new Error(`Failed to extract text from PDF: ${error.message}`);
-    }
+    console.error('Error in server-side text extraction:', error);
+    throw new Error(error instanceof Error ? error.message : 'Failed to extract text from PDF. Please try again.');
   }
 };
 
@@ -672,7 +621,7 @@ const extractTextFromPDF = async (pdfUrl: string): Promise<string> => {
                   variant="outline" 
                   className="w-full justify-start"
                   onClick={handleGenerateTTS}
-                  disabled={ttsLoading || !selectedBookId || !pdfUrl}
+                  disabled={ttsLoading || !selectedBookId}
                 >
                   <Mic className="w-4 h-4 mr-2" />
                   {ttsLoading ? "Generating Audio..." : "Text-to-Speech"}

@@ -64,6 +64,44 @@ export type Database = {
           },
         ]
       }
+      book_text_extractions: {
+        Row: {
+          book_id: string
+          created_at: string
+          extracted_text: string
+          extraction_method: string | null
+          id: string
+          page_count: number | null
+          updated_at: string
+        }
+        Insert: {
+          book_id: string
+          created_at?: string
+          extracted_text: string
+          extraction_method?: string | null
+          id?: string
+          page_count?: number | null
+          updated_at?: string
+        }
+        Update: {
+          book_id?: string
+          created_at?: string
+          extracted_text?: string
+          extraction_method?: string | null
+          id?: string
+          page_count?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "book_text_extractions_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: true
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       books: {
         Row: {
           author: string | null
