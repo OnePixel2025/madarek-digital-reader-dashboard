@@ -5,8 +5,6 @@ import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw, RefreshCw, AlertC
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { initializePdfWorker, getWorkerStatus } from '@/utils/pdfWorker';
-import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
-import 'react-pdf/dist/esm/Page/TextLayer.css';
 
 interface PdfRendererProps {
   pdfUrl: string;
