@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { BookOpen, Mic, MicOff, MessageCircle, Brain, Settings, X, Play, Pause, Volume2, VolumeX } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { BookOpen, Mic, MicOff, MessageCircle, Brain, Settings, X, Play, Pause, Volume2, VolumeX, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw, Maximize2, Minimize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -9,7 +9,6 @@ import { useUser } from '@clerk/clerk-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
-import { PdfRenderer } from '@/components/pdf/PdfRenderer';
 import { BookmarksPanel } from '@/components/pdf/BookmarksPanel';
 import { useReadingProgress } from '@/hooks/useReadingProgress';
 
@@ -21,28 +20,325 @@ interface Book {
   page_count: number | null;
 }
 
+// Enhanced PDF Viewer Component with controls
+const EnhancedPdfViewer = ({ 
+  pdfUrl, 
+  currentPage, 
+  onPageChange, 
+  onProgress, 
+  totalPages, 
+  className = "" 
+}) => {
+  const canvasRef = useRef(null);
+  const containerRef = useRef(null);
+  const [pdfDoc, setPdfDoc] = useState(null);
+  const [scale, setScale] = useState(1.2);
+  const [rotation, setRotation] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [renderTask, setRenderTask] = useState(null);
+  const [pageInput, setPageInput] = useState(currentPage.toString());
+  const [isLoading, setIsLoading] = useState(false);
+  const [readingStartTime, setReadingStartTime] = useState(Date.now());
+  const [scrollProgress, setScrollProgress] = useState(0);
+
+  // Load PDF.js dynamically
+  useEffect(() => {
+    const loadPdfJs = async () => {
+      if (window.pdfjsLib) return;
+      
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      script.onload = () => {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      };
+      document.head.appendChild(script);
+      
+      await new Promise(resolve => script.onload = resolve);
+    };
+    
+    loadPdfJs();
+  }, []);
+
+  // Load PDF document
+  useEffect(() => {
+    const loadPdf = async () => {
+      if (!pdfUrl || !window.pdfjsLib) return;
+      
+      try {
+        setIsLoading(true);
+        const pdf = await window.pdfjsLib.getDocument(pdfUrl).promise;
+        setPdfDoc(pdf);
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error loading PDF:', error);
+        setIsLoading(false);
+      }
+    };
+    
+    loadPdf();
+  }, [pdfUrl]);
+
+  // Update page input when currentPage changes
+  useEffect(() => {
+    setPageInput(currentPage.toString());
+  }, [currentPage]);
+
+  // Render page
+  const renderPage = useCallback(async (pageNum) => {
+    if (!pdfDoc || !canvasRef.current) return;
+    
+    try {
+      // Cancel previous render task
+      if (renderTask) {
+        renderTask.cancel();
+      }
+
+      const page = await pdfDoc.getPage(pageNum);
+      const canvas = canvasRef.current;
+      const context = canvas.getContext('2d');
+      
+      const viewport = page.getViewport({ scale, rotation });
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+      
+      const renderContext = {
+        canvasContext: context,
+        viewport: viewport
+      };
+      
+      const task = page.render(renderContext);
+      setRenderTask(task);
+      
+      await task.promise;
+      setRenderTask(null);
+      
+    } catch (error) {
+      if (error.name !== 'RenderingCancelledException') {
+        console.error('Error rendering page:', error);
+      }
+    }
+  }, [pdfDoc, scale, rotation, renderTask]);
+
+  // Render current page when dependencies change
+  useEffect(() => {
+    renderPage(currentPage);
+  }, [renderPage, currentPage]);
+
+  // Handle scroll for reading progress
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      const progress = scrollHeight > clientHeight ? 
+        Math.min(100, (scrollTop / (scrollHeight - clientHeight)) * 100) : 100;
+      
+      setScrollProgress(progress);
+      
+      // Update reading progress with scroll position
+      onProgress?.(progress);
+      
+      // Track reading time (simple implementation)
+      const timeSpent = Math.floor((Date.now() - readingStartTime) / 1000);
+      if (timeSpent > 0 && timeSpent % 30 === 0) { // Every 30 seconds
+        // This would trigger the reading progress update
+        onProgress?.(progress);
+      }
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [onProgress, readingStartTime]);
+
+  // Reset reading start time when page changes
+  useEffect(() => {
+    setReadingStartTime(Date.now());
+  }, [currentPage]);
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      onPageChange(currentPage - 1);
+    }
+  };
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      onPageChange(currentPage + 1);
+    }
+  };
+
+  const handlePageInputChange = (e) => {
+    setPageInput(e.target.value);
+  };
+
+  const handlePageInputSubmit = (e) => {
+    e.preventDefault();
+    const pageNum = parseInt(pageInput);
+    if (pageNum >= 1 && pageNum <= totalPages) {
+      onPageChange(pageNum);
+    } else {
+      setPageInput(currentPage.toString());
+    }
+  };
+
+  const handleZoomIn = () => {
+    setScale(prev => Math.min(prev + 0.2, 3));
+  };
+
+  const handleZoomOut = () => {
+    setScale(prev => Math.max(prev - 0.2, 0.5));
+  };
+
+  const handleRotate = () => {
+    setRotation(prev => (prev + 90) % 360);
+  };
+
+  const toggleFullscreen = () => {
+    if (!isFullscreen) {
+      containerRef.current?.requestFullscreen?.();
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen?.();
+      setIsFullscreen(false);
+    }
+  };
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center p-8 border-2 border-dashed border-stone-200 rounded-lg w-full h-96">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mx-auto mb-4"></div>
+          <p className="text-stone-600">Loading PDF...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`border border-stone-200 rounded-lg overflow-hidden ${className}`}>
+      {/* PDF Controls */}
+      <div className="bg-stone-50 border-b border-stone-200 p-3 flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handlePrevPage}
+            disabled={currentPage <= 1}
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          
+          <div className="flex items-center gap-1">
+            <span className="text-sm text-stone-600">Page</span>
+            <form onSubmit={handlePageInputSubmit} className="flex items-center">
+              <input
+                type="number"
+                value={pageInput}
+                onChange={handlePageInputChange}
+                min="1"
+                max={totalPages}
+                className="w-12 px-1 py-1 text-sm border border-stone-300 rounded text-center focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </form>
+            <span className="text-sm text-stone-600">of {totalPages}</span>
+          </div>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleNextPage}
+            disabled={currentPage >= totalPages}
+          >
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleZoomOut}>
+            <ZoomOut className="w-4 h-4" />
+          </Button>
+          <span className="text-sm text-stone-600 min-w-[3rem] text-center">
+            {Math.round(scale * 100)}%
+          </span>
+          <Button variant="outline" size="sm" onClick={handleZoomIn}>
+            <ZoomIn className="w-4 h-4" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleRotate}>
+            <RotateCw className="w-4 h-4" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={toggleFullscreen}>
+            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </Button>
+        </div>
+      </div>
+      
+      {/* PDF Viewer */}
+      <div
+        ref={containerRef}
+        className="bg-stone-100 overflow-auto"
+        style={{ height: isFullscreen ? '100vh' : '600px' }}
+      >
+        <div className="flex justify-center p-4">
+          <div className="bg-white shadow-lg">
+            <canvas
+              ref={canvasRef}
+              className="max-w-full h-auto"
+              style={{ transform: `rotate(${rotation}deg)` }}
+            />
+          </div>
+        </div>
+        
+        {/* Reading Progress Indicator */}
+        <div className="fixed bottom-4 right-4 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 shadow-lg border border-stone-200">
+          <div className="text-xs text-stone-600 mb-1">Reading Progress</div>
+          <div className="flex items-center gap-2">
+            <div className="w-20 bg-stone-200 rounded-full h-1">
+              <div 
+                className="bg-emerald-600 h-1 rounded-full transition-all"
+                style={{ width: `${scrollProgress}%` }}
+              />
+            </div>
+            <span className="text-xs text-stone-500">{Math.round(scrollProgress)}%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const ReadBook = () => {
   const { user } = useUser();
-  const { bookId } = useParams<{ bookId?: string }>();
+  const { bookId } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   
   const [isTTSActive, setIsTTSActive] = useState(false);
-  const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [selectedBookId, setSelectedBookId] = useState(null);
+  const [pdfUrl, setPdfUrl] = useState(null);
+  const [pdfError, setPdfError] = useState(null);
   const [loadingPdf, setLoadingPdf] = useState(false);
-  const [bookSummary, setBookSummary] = useState<string | null>(null);
+  const [bookSummary, setBookSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [showSummaryDialog, setShowSummaryDialog] = useState(false);
-  const [ttsAudio, setTtsAudio] = useState<string | null>(null);
+  const [ttsAudio, setTtsAudio] = useState(null);
   const [ttsLoading, setTtsLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(1);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [selectedVoice, setSelectedVoice] = useState('Aria');
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioRef = useRef(null);
 
   // Load summary from localStorage when book changes
   useEffect(() => {
@@ -73,7 +369,7 @@ export const ReadBook = () => {
       }
       
       console.log('Fetched books for reading:', data);
-      return data as Book[];
+      return data;
     }
   });
 
@@ -82,7 +378,6 @@ export const ReadBook = () => {
     if (bookId) {
       setSelectedBookId(bookId);
     } else if (books.length > 0 && !selectedBookId) {
-      // If no bookId in URL, select first book and navigate to it
       const firstBookId = books[0].id;
       setSelectedBookId(firstBookId);
       navigate(`/read-book/${firstBookId}`, { replace: true });
@@ -104,14 +399,12 @@ export const ReadBook = () => {
       try {
         console.log('Getting PDF URL for file:', selectedBook.file_path);
         
-        let finalUrl: string;
+        let finalUrl;
         
-        // Check if file_path is already a full URL
         if (selectedBook.file_path.startsWith('http')) {
           console.log('File path is already a full URL:', selectedBook.file_path);
           finalUrl = selectedBook.file_path;
         } else {
-          // Get public URL from Supabase storage
           const { data } = await supabase.storage
             .from('books')
             .getPublicUrl(selectedBook.file_path);
@@ -170,7 +463,6 @@ export const ReadBook = () => {
   });
 
   const handleRetryLoad = () => {
-    // Force reload the PDF by clearing and resetting the URL
     const currentUrl = pdfUrl;
     setPdfUrl(null);
     setPdfError(null);
@@ -286,7 +578,7 @@ export const ReadBook = () => {
     }
   };
 
-  const extractTextFromPDF = async (bookId: string): Promise<string> => {
+  const extractTextFromPDF = async (bookId) => {
     try {
       console.log('Calling server-side text extraction for book:', bookId);
       
@@ -328,14 +620,14 @@ export const ReadBook = () => {
     }
   };
 
-  const handleVolumeChange = (newVolume: number) => {
+  const handleVolumeChange = (newVolume) => {
     setVolume(newVolume);
     if (audioRef.current) {
       audioRef.current.volume = newVolume;
     }
   };
 
-  const formatTime = (seconds: number) => {
+  const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -388,7 +680,7 @@ export const ReadBook = () => {
     <div className="flex gap-6 h-full">
       {/* Main Reading Area */}
       <div className="flex-1 bg-white rounded-xl border border-stone-200 p-8">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-6xl mx-auto">
           {/* Book Header */}
           <div className="mb-6 text-center">
             <div className="mb-4">
@@ -417,7 +709,7 @@ export const ReadBook = () => {
             )}
           </div>
 
-          {/* PDF Display */}
+          {/* Enhanced PDF Display */}
           <div className="flex justify-center">
             {loadingPdf ? (
               <div className="flex items-center justify-center p-8 border-2 border-dashed border-stone-200 rounded-lg w-full h-96">
@@ -432,16 +724,17 @@ export const ReadBook = () => {
                   <BookOpen className="w-12 h-12 text-red-400 mx-auto mb-4" />
                   <h3 className="text-lg font-medium text-red-800 mb-2">Failed to load PDF</h3>
                   <p className="text-red-600 mb-4 text-sm">{pdfError}</p>
-                  <Button onClick={() => window.location.reload()} variant="outline" size="sm">
+                  <Button onClick={handleRetryLoad} variant="outline" size="sm">
                     Retry Loading
                   </Button>
                 </div>
               </div>
             ) : pdfUrl ? (
               <div className="w-full">
-                <PdfRenderer
+                <EnhancedPdfViewer
                   pdfUrl={pdfUrl}
                   currentPage={currentPage}
+                  totalPages={selectedBook?.page_count || 1}
                   onPageChange={updatePage}
                   onProgress={updateScrollProgress}
                   className="w-full"
@@ -459,7 +752,7 @@ export const ReadBook = () => {
         </div>
       </div>
 
-      {/* Reading Tools Sidebar */}
+      {/* Reading Tools Sidebar - Rest of the component remains the same */}
       <div className="w-80 space-y-6">
         {/* Reading Controls */}
         <Card className="border-stone-200">
