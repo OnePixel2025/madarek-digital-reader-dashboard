@@ -447,7 +447,8 @@ const extractTextFromPDF = async (bookId: string): Promise<string> => {
     console.log(`Text extraction ${data.cached ? 'retrieved from cache' : 'completed'}:`, {
       textLength: data.text.length,
       pageCount: data.pageCount,
-      cached: data.cached
+      cached: data.cached,
+      text: data.text
     });
 
     return data.text;
