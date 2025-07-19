@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw } from 'lucide-rea
 import { Button } from '@/components/ui/button';
 
 // Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 interface PdfRendererProps {
   pdfUrl: string;
@@ -42,7 +42,6 @@ export const PdfRenderer: React.FC<PdfRendererProps> = ({
       try {
         const pdf = await pdfjsLib.getDocument({
           url: pdfUrl,
-          disableWorker: false,
           isEvalSupported: false
         }).promise;
         
