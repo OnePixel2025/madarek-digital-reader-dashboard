@@ -6,11 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// Configuration
-const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
-const MAX_PAGES = 1000
-const BATCH_SIZE = 10 // Process pages in batches
-
+// Alternative approach using pdf-parse which works better with Deno
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -47,101 +43,115 @@ serve(async (req) => {
     }
 
     // Get book details
-    const { data: book, error: bookError } = await supabase
+    const { data: book } = await supabase
       .from('books')
       .select('file_path, title')
       .eq('id', bookId)
       .single()
 
-    if (bookError || !book?.file_path) {
+    if (!book?.file_path) {
       throw new Error('Book file not found')
     }
 
-    // Get file info first to check size
-    const { data: fileInfo } = await supabase.storage
-      .from('books')
-      .list('', { search: book.file_path })
-
-    const fileSize = fileInfo?.[0]?.metadata?.size
-    if (fileSize && fileSize > MAX_FILE_SIZE) {
-      throw new Error(`File too large: ${Math.round(fileSize / 1024 / 1024)}MB. Maximum allowed: ${MAX_FILE_SIZE / 1024 / 1024}MB`)
-    }
-
     // Get the PDF file from storage
-    const { data: fileData, error: downloadError } = await supabase.storage
+    const { data: fileData } = await supabase.storage
       .from('books')
       .download(book.file_path)
 
-    if (downloadError || !fileData) {
-      throw new Error('Failed to download PDF file: ' + downloadError?.message)
+    if (!fileData) {
+      throw new Error('Failed to download PDF file')
     }
 
     // Convert blob to array buffer
-    const arrayBuffer = await fileData.arrayBuffer()
-    const pdfData = new Uint8Array(arrayBuffer)
-    
-    // Import pdf.js with better error handling
-    let pdfjsLib
-    try {
-      pdfjsLib = await import('https://esm.sh/pdfjs-dist@3.11.174')
-    } catch (importError) {
-      throw new Error('Failed to load PDF processing library')
-    }
-    
-    // Load the PDF document with timeout
-    const loadingTask = pdfjsLib.getDocument({ 
-      data: pdfData,
-      verbosity: 0 // Reduce console noise
-    })
-    
-    const pdf = await Promise.race([
-      loadingTask.promise,
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('PDF loading timeout')), 30000)
-      )
-    ]) as any
-
-    const pageCount = pdf.numPages
-    
-    if (pageCount > MAX_PAGES) {
-      throw new Error(`PDF has too many pages: ${pageCount}. Maximum allowed: ${MAX_PAGES}`)
-    }
+    const buffer = await fileData.arrayBuffer()
     
     let extractedText = ''
-    let processedPages = 0
-    
-    // Process pages in batches to manage memory
-    for (let batchStart = 1; batchStart <= pageCount; batchStart += BATCH_SIZE) {
-      const batchEnd = Math.min(batchStart + BATCH_SIZE - 1, pageCount)
+    let pageCount = 0
+
+    try {
+      // Method 1: Try with pdf-parse (simpler, more reliable for Deno)
+      const pdfParse = await import('https://esm.sh/pdf-parse@1.1.1')
       
-      const batchPromises = []
-      for (let i = batchStart; i <= batchEnd; i++) {
-        batchPromises.push(extractPageText(pdf, i))
-      }
+      const data = await pdfParse.default(new Uint8Array(buffer))
+      extractedText = data.text
+      pageCount = data.numpages
+      
+    } catch (pdfParseError) {
+      console.log('pdf-parse failed, trying alternative method:', pdfParseError.message)
       
       try {
-        const batchTexts = await Promise.all(batchPromises)
-        extractedText += batchTexts.join('\n\n') + '\n\n'
-        processedPages += batchTexts.length
+        // Method 2: Try with a specific pdf.js configuration for Deno
+        const pdfjsLib = await import('https://esm.sh/pdfjs-dist@3.11.174/legacy/build/pdf.js')
         
-        // Optional: Report progress for long documents
-        if (pageCount > 50) {
-          console.log(`Processed ${processedPages}/${pageCount} pages`)
+        // Configure for server-side usage
+        if (pdfjsLib.GlobalWorkerOptions) {
+          pdfjsLib.GlobalWorkerOptions.workerSrc = null
         }
-      } catch (batchError) {
-        console.error(`Error processing batch ${batchStart}-${batchEnd}:`, batchError)
-        // Continue with next batch instead of failing completely
-        extractedText += `[Error extracting pages ${batchStart}-${batchEnd}]\n\n`
+        
+        const pdf = await pdfjsLib.getDocument({
+          data: new Uint8Array(buffer),
+          verbosity: 0,
+          isEvalSupported: false,
+          disableWorker: true,
+          useSystemFonts: true
+        }).promise
+        
+        pageCount = pdf.numPages
+        
+        for (let i = 1; i <= pageCount; i++) {
+          try {
+            const page = await pdf.getPage(i)
+            const textContent = await page.getTextContent()
+            const pageText = textContent.items
+              .filter((item: any) => item.str)
+              .map((item: any) => item.str)
+              .join(' ')
+            
+            extractedText += pageText + '\n\n'
+          } catch (pageError) {
+            console.error(`Error extracting page ${i}:`, pageError)
+            extractedText += `[Error extracting page ${i}]\n\n`
+          }
+        }
+        
+      } catch (pdfjsError) {
+        console.log('pdf.js also failed:', pdfjsError.message)
+        
+        // Method 3: Fallback to a simple text extraction attempt
+        try {
+          const textDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: false })
+          const rawText = textDecoder.decode(new Uint8Array(buffer))
+          
+          // Look for text patterns in the PDF
+          const textMatches = rawText.match(/\(([^)]+)\)/g)
+          if (textMatches && textMatches.length > 10) {
+            extractedText = textMatches
+              .map(match => match.slice(1, -1))
+              .filter(text => text.length > 2 && /[a-zA-Z]/.test(text))
+              .join(' ')
+            
+            // Estimate page count from PDF structure
+            const pageMatches = rawText.match(/\/Type\s*\/Page[^s]/g)
+            pageCount = pageMatches ? pageMatches.length : 1
+          } else {
+            throw new Error('Could not extract readable text from PDF')
+          }
+        } catch (fallbackError) {
+          throw new Error('All PDF extraction methods failed. PDF might be corrupted, encrypted, or image-based.')
+        }
       }
     }
-    
-    // Clean up the extracted text more thoroughly
-    extractedText = cleanupText(extractedText)
-    
-    if (extractedText.length < 100) {
-      console.warn('Extracted text is suspiciously short, PDF might be image-based or corrupted')
+
+    // Clean up the extracted text
+    extractedText = extractedText
+      .replace(/\s+/g, ' ')
+      .replace(/\n\s*\n/g, '\n\n')
+      .trim()
+
+    if (extractedText.length < 50) {
+      throw new Error('Extracted text is too short. PDF might be image-based or corrupted.')
     }
-    
+
     // Store the extracted text in the database
     const { error: insertError } = await supabase
       .from('book_text_extractions')
@@ -149,31 +159,29 @@ serve(async (req) => {
         book_id: bookId,
         extracted_text: extractedText,
         page_count: pageCount,
-        extraction_method: 'server-side-improved',
-        extracted_at: new Date().toISOString()
+        extraction_method: 'server-side-multi-method'
       })
-    
+
     if (insertError) {
       console.error('Error storing extracted text:', insertError)
       // Continue anyway, we can still return the text
     }
-    
+
     return new Response(
       JSON.stringify({ 
         text: extractedText,
         pageCount,
-        processedPages,
         cached: false
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
-    
+
   } catch (error) {
     console.error('Error extracting PDF text:', error)
     return new Response(
       JSON.stringify({ 
-        error: error.message || 'Unknown error occurred',
-        type: 'extraction_error'
+        error: error.message,
+        suggestion: 'PDF might be image-based, encrypted, or corrupted. Consider using OCR for scanned documents.'
       }),
       {
         status: 500,
@@ -182,58 +190,3 @@ serve(async (req) => {
     )
   }
 })
-
-async function extractPageText(pdf: any, pageNum: number): Promise<string> {
-  try {
-    const page = await pdf.getPage(pageNum)
-    const textContent = await page.getTextContent()
-    
-    // Better text extraction with position awareness
-    const textItems = textContent.items
-      .filter((item: any) => item.str && item.str.trim())
-      .sort((a: any, b: any) => {
-        // Sort by Y position first (top to bottom), then X position (left to right)
-        if (Math.abs(a.transform[5] - b.transform[5]) > 5) {
-          return b.transform[5] - a.transform[5] // Higher Y comes first
-        }
-        return a.transform[4] - b.transform[4] // Lower X comes first
-      })
-    
-    let pageText = ''
-    let lastY = null
-    
-    for (const item of textItems) {
-      const currentY = Math.round(item.transform[5])
-      
-      // Add line break if we're on a new line
-      if (lastY !== null && Math.abs(currentY - lastY) > 5) {
-        pageText += '\n'
-      }
-      
-      pageText += item.str + ' '
-      lastY = currentY
-    }
-    
-    return pageText.trim()
-  } catch (pageError) {
-    console.error(`Error extracting text from page ${pageNum}:`, pageError)
-    return `[Error extracting page ${pageNum}]`
-  }
-}
-
-function cleanupText(text: string): string {
-  return text
-    // Remove excessive whitespace
-    .replace(/[ \t]+/g, ' ')
-    // Normalize line breaks
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    // Remove excessive line breaks but preserve paragraph structure
-    .replace(/\n{3,}/g, '\n\n')
-    // Remove leading/trailing whitespace from lines
-    .split('\n')
-    .map(line => line.trim())
-    .join('\n')
-    // Final cleanup
-    .trim()
-}
