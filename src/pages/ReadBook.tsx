@@ -382,12 +382,15 @@ export const ReadBook = () => {
       console.log('Text extracted successfully, generating audio...');
       setExtractedText(extractedText);
       
-      // Generate TTS audio using the generate-book-tts edge function
+      // Limit text for TTS (first 3000 characters for better performance)
+      const textForTTS = extractedText.substring(0, 3000);
+      
+      // Generate TTS audio using the updated generate-book-tts edge function
       const { data, error } = await supabase.functions.invoke('generate-book-tts', {
         body: { 
           bookId: selectedBookId,
-          text: extractedText.substring(0, 5000), // Limit to first 5000 characters for demo
-          voice: 'alloy' // Default voice
+          text: textForTTS,
+          voice: 'en-US-Neural2-D' // Use Google Cloud TTS voice
         }
       });
 
@@ -405,7 +408,7 @@ export const ReadBook = () => {
         
         toast({
           title: "Audio generated successfully",
-          description: "Your text-to-speech audio is ready to play!",
+          description: `Generated audio for ${textForTTS.length} characters of text!`,
         });
       } else {
         throw new Error('No audio URL returned from the service');
@@ -423,7 +426,7 @@ export const ReadBook = () => {
     }
   };
 
-// 4. Add this new function to extract text from PDF
+// Extract text from PDF function
 const extractTextFromPDF = async (pdfUrl: string): Promise<string> => {
   try {
     // First, try to fetch the PDF as ArrayBuffer to handle CORS issues
@@ -453,8 +456,10 @@ const extractTextFromPDF = async (pdfUrl: string): Promise<string> => {
     
     let fullText = '';
     
-    // Extract text from each page
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    // Extract text from first 5 pages only for performance
+    const maxPages = Math.min(pdf.numPages, 5);
+    
+    for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
       try {
         const page = await pdf.getPage(pageNum);
         const textContent = await page.getTextContent();
@@ -472,13 +477,12 @@ const extractTextFromPDF = async (pdfUrl: string): Promise<string> => {
           .join(' ');
         
         if (pageText.trim()) {
-          fullText += `--- Page ${pageNum} ---\n${pageText}\n\n`;
+          fullText += `${pageText} `;
         }
         
-        console.log(`Processed page ${pageNum} of ${pdf.numPages} - ${pageText.length} characters`);
+        console.log(`Processed page ${pageNum} of ${maxPages} - ${pageText.length} characters`);
       } catch (pageError) {
         console.warn(`Error processing page ${pageNum}:`, pageError);
-        fullText += `--- Page ${pageNum} (Error reading page) ---\n\n`;
       }
     }
     
@@ -548,7 +552,6 @@ const extractTextFromPDF = async (pdfUrl: string): Promise<string> => {
       audio.removeEventListener('ended', handleEnded);
     };
   }, [ttsAudio]);
-
 
   if (booksLoading) {
     return (
@@ -669,7 +672,7 @@ const extractTextFromPDF = async (pdfUrl: string): Promise<string> => {
                   variant="outline" 
                   className="w-full justify-start"
                   onClick={handleGenerateTTS}
-  disabled={ttsLoading || !selectedBookId || !pdfUrl}
+                  disabled={ttsLoading || !selectedBookId || !pdfUrl}
                 >
                   <Mic className="w-4 h-4 mr-2" />
                   {ttsLoading ? "Generating Audio..." : "Text-to-Speech"}

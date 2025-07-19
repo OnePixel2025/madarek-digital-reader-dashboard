@@ -1,7 +1,7 @@
+
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
-import { getDocument } from 'https://esm.sh/pdfjs-dist@4.0.379/build/pdf.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -15,96 +15,82 @@ serve(async (req) => {
   }
 
   try {
-    const { bookId, pageRange } = await req.json();
+    const { bookId, text, voice = 'en-US-Neural2-D' } = await req.json();
     
     if (!bookId) {
       throw new Error('Book ID is required');
     }
+
+    if (!text) {
+      throw new Error('Text is required');
+    }
+
+    console.log(`Generating TTS for book ${bookId} with ${text.length} characters`);
 
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Fetch book details
-    const { data: book, error: bookError } = await supabase
-      .from('books')
-      .select('title, author, file_path, language')
-      .eq('id', bookId)
-      .single();
+    // Generate speech from text using Google Cloud Text-to-Speech
+    const response = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${Deno.env.get('GOOGLE_API_KEY')}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        input: { text: text },
+        voice: {
+          languageCode: 'en-US',
+          name: voice,
+          ssmlGender: 'NEUTRAL',
+        },
+        audioConfig: {
+          audioEncoding: 'MP3',
+          speakingRate: 1.0,
+          pitch: 0.0,
+        },
+      }),
+    });
 
-    if (bookError) {
-      console.error('Error fetching book:', bookError);
-      throw new Error('Failed to fetch book details');
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'Failed to generate speech with Google TTS');
     }
 
-    if (!book || !book.file_path) {
-      throw new Error('Book file not found');
-    }
-
-    console.log('Processing TTS for book:', book.title);
-
-    // Get PDF file
-    let pdfUrl: string;
-    if (book.file_path.startsWith('http')) {
-      pdfUrl = book.file_path;
-    } else {
-      const { data } = await supabase.storage
-        .from('books')
-        .getPublicUrl(book.file_path);
-      pdfUrl = data.publicUrl;
-    }
-
-    // Download PDF file
-    const pdfResponse = await fetch(pdfUrl);
-    if (!pdfResponse.ok) {
-      throw new Error('Failed to download PDF file');
-    }
-
-    const pdfArrayBuffer = await pdfResponse.arrayBuffer();
+    // Get the response and extract base64 audio content
+    const data = await response.json();
+    const audioContent = data.audioContent; // This is already base64 encoded
+    const audioBuffer = Uint8Array.from(atob(audioContent), c => c.charCodeAt(0)).buffer;
     
-    console.log('Starting PDF text extraction...');
+    // Upload audio to Supabase Storage
+    const fileName = `tts/${bookId}_${Date.now()}.mp3`;
     
-    // Extract text from PDF using pdf.js
-    let extractedText = '';
-    
-    try {
-      const uint8Array = new Uint8Array(pdfArrayBuffer);
-      const pdf = await getDocument(uint8Array).promise;
-      
-      console.log(`PDF has ${pdf.numPages} pages`);
-      
-      // Extract text from all pages
-      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        console.log(`Extracting text from page ${pageNum}/${pdf.numPages}`);
-        
-        const page = await pdf.getPage(pageNum);
-        const textContent = await page.getTextContent();
-        
-        // Combine all text items from the page
-        const pageText = textContent.items
-          .map((item: any) => item.str)
-          .join(' ');
-        
-        extractedText += `\n--- Page ${pageNum} ---\n${pageText}\n`;
-      }
-      
-      console.log(`Successfully extracted ${extractedText.length} characters from ${pdf.numPages} pages`);
-      
-    } catch (pdfError) {
-      console.error('Error during PDF text extraction:', pdfError);
-      extractedText = `Error extracting PDF content: ${pdfError.message}. Book: "${book.title}"${book.author ? ` by ${book.author}` : ''}`;
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('podcasts')
+      .upload(fileName, audioBuffer, {
+        contentType: 'audio/mpeg',
+        upsert: true
+      });
+
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      throw new Error(`Failed to upload audio: ${uploadError.message}`);
     }
 
-    // Instead of TTS, just log and return the extracted text
-    console.log('Extracted PDF text:', extractedText);
+    // Get public URL for the uploaded audio
+    const { data: urlData } = await supabase.storage
+      .from('podcasts')
+      .getPublicUrl(fileName);
+
+    console.log('Successfully generated TTS audio:', urlData.publicUrl);
 
     return new Response(
       JSON.stringify({ 
-        extractedText: extractedText,
-        bookTitle: book.title,
-        bookAuthor: book.author,
-        message: 'PDF text extracted successfully (TTS disabled for debugging)'
+        success: true,
+        audioUrl: urlData.publicUrl,
+        fileName: fileName,
+        textLength: text.length
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
