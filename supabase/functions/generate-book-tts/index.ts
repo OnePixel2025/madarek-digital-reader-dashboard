@@ -15,7 +15,7 @@ serve(async (req) => {
   }
 
   try {
-    const { bookId, text, voice = 'en-US-Neural2-D' } = await req.json();
+    const { bookId, text, voice = 'alloy' } = await req.json();
     
     if (!bookId) {
       throw new Error('Book ID is required');
@@ -32,36 +32,28 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Generate speech from text using Google Cloud Text-to-Speech
-    const response = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${Deno.env.get('GOOGLE_API_KEY')}`, {
+    // Generate speech from text using OpenAI TTS
+    const response = await fetch('https://api.openai.com/v1/audio/speech', {
       method: 'POST',
       headers: {
+        'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        input: { text: text },
-        voice: {
-          languageCode: 'en-US',
-          name: voice,
-          ssmlGender: 'NEUTRAL',
-        },
-        audioConfig: {
-          audioEncoding: 'MP3',
-          speakingRate: 1.0,
-          pitch: 0.0,
-        },
+        model: 'tts-1',
+        input: text,
+        voice: voice,
+        response_format: 'mp3',
       }),
     });
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.error?.message || 'Failed to generate speech with Google TTS');
+      throw new Error(error.error?.message || 'Failed to generate speech with OpenAI TTS');
     }
 
-    // Get the response and extract base64 audio content
-    const data = await response.json();
-    const audioContent = data.audioContent; // This is already base64 encoded
-    const audioBuffer = Uint8Array.from(atob(audioContent), c => c.charCodeAt(0)).buffer;
+    // Get the response and convert to buffer
+    const audioBuffer = await response.arrayBuffer();
     
     // Upload audio to Supabase Storage
     const fileName = `tts/${bookId}_${Date.now()}.mp3`;
