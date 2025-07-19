@@ -12,7 +12,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import * as pdfjsLib from 'pdfjs-dist';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.3.31/pdf.worker.min.js';
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
 
 // PDF Viewer Component using iframe
 const PdfViewer = React.forwardRef<HTMLIFrameElement, { src?: string; style?: React.CSSProperties }>(
@@ -359,53 +359,69 @@ export const ReadBook = () => {
   };
 
   const handleGenerateTTS = async () => {
-  if (!selectedBookId || !pdfUrl) {
-    toast({
-      title: "No book selected",
-      description: "Please select a book to extract text.",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  setTtsLoading(true);
-  try {
-    console.log('Starting text extraction from PDF:', pdfUrl);
-    
-    // Extract text from PDF using PDF.js
-    const extractedText = await extractTextFromPDF(pdfUrl);
-    
-    if (!extractedText || extractedText.trim().length === 0) {
-      throw new Error('No text could be extracted from the PDF');
+    if (!selectedBookId || !pdfUrl) {
+      toast({
+        title: "No book selected",
+        description: "Please select a book to generate audio.",
+        variant: "destructive",
+      });
+      return;
     }
 
-    // Log the extracted text to console
-    console.log('=== EXTRACTED PDF TEXT ===');
-    console.log('Book title:', selectedBook?.title);
-    console.log('Book author:', selectedBook?.author);
-    console.log('Text length:', extractedText.length, 'characters');
-    console.log('First 500 characters:', extractedText.substring(0, 500));
-    console.log('Full text:', extractedText);
+    setTtsLoading(true);
+    try {
+      console.log('Starting text extraction from PDF:', pdfUrl);
+      
+      // Extract text from PDF using PDF.js
+      const extractedText = await extractTextFromPDF(pdfUrl);
+      
+      if (!extractedText || extractedText.trim().length === 0) {
+        throw new Error('No text could be extracted from the PDF');
+      }
 
-    // Store extracted text in state for further processing
-    setExtractedText(extractedText);
-    
-    toast({
-      title: "Text extracted successfully",
-      description: `Extracted ${extractedText.length} characters from ${selectedBook?.title}. Check browser console for full text.`,
-    });
-    
-  } catch (error) {
-    console.error('Error extracting PDF text:', error);
-    toast({
-      title: "Error extracting text",
-      description: error instanceof Error ? error.message : "Failed to extract PDF text. Please try again.",
-      variant: "destructive",
-    });
-  } finally {
-    setTtsLoading(false);
-  }
-};
+      console.log('Text extracted successfully, generating audio...');
+      setExtractedText(extractedText);
+      
+      // Generate TTS audio using the generate-book-tts edge function
+      const { data, error } = await supabase.functions.invoke('generate-book-tts', {
+        body: { 
+          bookId: selectedBookId,
+          text: extractedText.substring(0, 5000), // Limit to first 5000 characters for demo
+          voice: 'alloy' // Default voice
+        }
+      });
+
+      if (error) throw error;
+
+      if (data?.audioUrl) {
+        setTtsAudio(data.audioUrl);
+        setIsTTSActive(true);
+        
+        // Load the audio into the audio element
+        if (audioRef.current) {
+          audioRef.current.src = data.audioUrl;
+          audioRef.current.load();
+        }
+        
+        toast({
+          title: "Audio generated successfully",
+          description: "Your text-to-speech audio is ready to play!",
+        });
+      } else {
+        throw new Error('No audio URL returned from the service');
+      }
+      
+    } catch (error) {
+      console.error('Error generating TTS:', error);
+      toast({
+        title: "Error generating audio",
+        description: error instanceof Error ? error.message : "Failed to generate text-to-speech audio. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setTtsLoading(false);
+    }
+  };
 
 // 4. Add this new function to extract text from PDF
 const extractTextFromPDF = async (pdfUrl: string): Promise<string> => {
@@ -428,7 +444,7 @@ const extractTextFromPDF = async (pdfUrl: string): Promise<string> => {
     // Load the PDF document from the array buffer
     const loadingTask = pdfjsLib.getDocument({
       data: uint8Array,
-      cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+      cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/cmaps/`,
       cMapPacked: true,
     });
     
