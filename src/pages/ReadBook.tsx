@@ -1,39 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BookOpen, Bookmark, Mic, MicOff, MessageCircle, Brain, Settings, ChevronLeft, ChevronRight, X, Play, Pause, Volume2, VolumeX } from 'lucide-react';
+import { BookOpen, Mic, MicOff, MessageCircle, Brain, Settings, X, Play, Pause, Volume2, VolumeX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
-import * as pdfjsLib from 'pdfjs-dist';
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
-
-// PDF Viewer Component using iframe
-const PdfViewer = React.forwardRef<HTMLIFrameElement, { src?: string; style?: React.CSSProperties }>(
-  ({ src, style }, ref) => {
-    return (
-      <iframe
-        ref={ref}
-        src={src ? `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(src)}` : undefined}
-        title="PDF Viewer"
-        style={{
-          width: '100%',
-          height: '600px',
-          border: '1px solid #e5e7eb',
-          borderRadius: '0.5rem',
-          background: '#f9fafb',
-          ...style
-        }}
-      />
-    );
-  }
-);
+import { PdfRenderer } from '@/components/pdf/PdfRenderer';
+import { BookmarksPanel } from '@/components/pdf/BookmarksPanel';
+import { useReadingProgress } from '@/hooks/useReadingProgress';
 
 interface Book {
   id: string;
@@ -50,14 +28,10 @@ export const ReadBook = () => {
   const queryClient = useQueryClient();
   
   const [isTTSActive, setIsTTSActive] = useState(false);
-  const [showAIChat, setShowAIChat] = useState(false);
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState<number>(1);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [loadingPdf, setLoadingPdf] = useState(false);
-  const [readingSessionId, setReadingSessionId] = useState<string | null>(null);
-  const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
   const [bookSummary, setBookSummary] = useState<string | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [showSummaryDialog, setShowSummaryDialog] = useState(false);
@@ -67,9 +41,7 @@ export const ReadBook = () => {
   const [volume, setVolume] = useState(1);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [extractedText, setExtractedText] = useState<string | null>(null);
   const [selectedVoice, setSelectedVoice] = useState('Aria');
-  const pdfViewerRef = useRef<HTMLIFrameElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Load summary from localStorage when book changes
@@ -160,6 +132,20 @@ export const ReadBook = () => {
     loadPdfUrl();
   }, [selectedBookId, books]);
 
+  const selectedBook = books.find(book => book.id === selectedBookId);
+
+  // Initialize reading progress hook
+  const { 
+    currentPage, 
+    readingTime, 
+    updatePage, 
+    updateScrollProgress, 
+    isUpdating 
+  } = useReadingProgress({ 
+    bookId: selectedBookId || '', 
+    totalPages: selectedBook?.page_count || undefined 
+  });
+
   // Fetch reading progress for selected book
   const { data: bookProgress } = useQuery({
     queryKey: ['book-progress', selectedBookId, user?.id],
@@ -182,127 +168,6 @@ export const ReadBook = () => {
     },
     enabled: !!selectedBookId && !!user?.id,
   });
-
-  // Start reading session mutation
-  const startSessionMutation = useMutation({
-    mutationFn: async ({ bookId, pageStart }: { bookId: string; pageStart: number }) => {
-      if (!user?.id) throw new Error('User not authenticated');
-      
-      const { data, error } = await supabase
-        .from('reading_sessions')
-        .insert({
-          user_id: user.id,
-          book_id: bookId,
-          page_start: pageStart,
-          start_time: new Date().toISOString()
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: (data) => {
-      setReadingSessionId(data.id);
-      setSessionStartTime(new Date());
-    }
-  });
-
-  // End reading session mutation
-  const endSessionMutation = useMutation({
-    mutationFn: async ({ sessionId, pageEnd }: { sessionId: string; pageEnd: number }) => {
-      const endTime = new Date();
-      const startTime = sessionStartTime || new Date();
-      const durationMinutes = Math.round((endTime.getTime() - startTime.getTime()) / (1000 * 60));
-
-      const { error } = await supabase
-        .from('reading_sessions')
-        .update({
-          end_time: endTime.toISOString(),
-          page_end: pageEnd,
-          duration_minutes: Math.max(durationMinutes, 1) // At least 1 minute
-        })
-        .eq('id', sessionId);
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['reading-stats'] });
-    }
-  });
-
-  // Update book progress mutation
-  const updateProgressMutation = useMutation({
-    mutationFn: async ({ 
-      bookId, 
-      currentPage, 
-      totalPages 
-    }: { 
-      bookId: string; 
-      currentPage: number; 
-      totalPages?: number;
-    }) => {
-      if (!user?.id) throw new Error('User not authenticated');
-      
-      const progressPercentage = totalPages ? (currentPage / totalPages) * 100 : 0;
-      const isCompleted = totalPages ? currentPage >= totalPages : false;
-
-      const { error } = await supabase
-        .from('book_progress')
-        .upsert({
-          user_id: user.id,
-          book_id: bookId,
-          current_page: currentPage,
-          total_pages: totalPages,
-          progress_percentage: progressPercentage,
-          is_completed: isCompleted,
-          completed_at: isCompleted ? new Date().toISOString() : null,
-          last_read_at: new Date().toISOString()
-        });
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['book-progress'] });
-      queryClient.invalidateQueries({ queryKey: ['reading-history'] });
-    }
-  });
-
-  // Start reading session when book is selected
-  useEffect(() => {
-    if (selectedBookId && user?.id && !readingSessionId) {
-      startSessionMutation.mutate({ 
-        bookId: selectedBookId, 
-        pageStart: currentPage 
-      });
-    }
-  }, [selectedBookId, user?.id]);
-
-  // Update progress when page changes
-  useEffect(() => {
-    if (selectedBookId && currentPage > 0) {
-      const selectedBook = books.find(book => book.id === selectedBookId);
-      updateProgressMutation.mutate({
-        bookId: selectedBookId,
-        currentPage,
-        totalPages: selectedBook?.page_count || undefined
-      });
-    }
-  }, [selectedBookId, currentPage, books]);
-
-  // End session when component unmounts or book changes
-  useEffect(() => {
-    return () => {
-      if (readingSessionId && currentPage > 0) {
-        endSessionMutation.mutate({ 
-          sessionId: readingSessionId, 
-          pageEnd: currentPage 
-        });
-      }
-    };
-  }, [readingSessionId, currentPage]);
-
-  const selectedBook = books.find(book => book.id === selectedBookId);
 
   const handleRetryLoad = () => {
     // Force reload the PDF by clearing and resetting the URL
@@ -332,7 +197,6 @@ export const ReadBook = () => {
 
       if (error) throw error;
 
-      // Save summary to localStorage
       localStorage.setItem(`book-summary-${selectedBookId}`, data.summary);
       setBookSummary(data.summary);
       setShowSummaryDialog(true);
@@ -373,7 +237,6 @@ export const ReadBook = () => {
     try {
       console.log('Starting server-side text extraction for book:', selectedBookId);
       
-      // Extract text from PDF using server-side extraction
       const extractedText = await extractTextFromPDF(selectedBookId);
       
       if (!extractedText || extractedText.trim().length === 0) {
@@ -381,17 +244,14 @@ export const ReadBook = () => {
       }
 
       console.log('Text extracted successfully, generating audio...');
-      setExtractedText(extractedText);
       
-      // Limit text for TTS (first 5000 characters for better performance)
       const textForTTS = extractedText.substring(0, 5000);
       
-      // Generate TTS audio using ElevenLabs
       const { data, error } = await supabase.functions.invoke('generate-book-tts', {
         body: { 
           bookId: selectedBookId,
           text: textForTTS,
-          voice: selectedVoice // Use selected ElevenLabs voice
+          voice: selectedVoice
         }
       });
 
@@ -401,7 +261,6 @@ export const ReadBook = () => {
         setTtsAudio(data.audioUrl);
         setIsTTSActive(true);
         
-        // Load the audio into the audio element
         if (audioRef.current) {
           audioRef.current.src = data.audioUrl;
           audioRef.current.load();
@@ -427,37 +286,35 @@ export const ReadBook = () => {
     }
   };
 
-// Extract text from PDF using server-side extraction
-const extractTextFromPDF = async (bookId: string): Promise<string> => {
-  try {
-    console.log('Calling server-side text extraction for book:', bookId);
-    
-    const { data, error } = await supabase.functions.invoke('extract-pdf-text', {
-      body: { bookId }
-    });
+  const extractTextFromPDF = async (bookId: string): Promise<string> => {
+    try {
+      console.log('Calling server-side text extraction for book:', bookId);
+      
+      const { data, error } = await supabase.functions.invoke('extract-pdf-text', {
+        body: { bookId }
+      });
 
-    if (error) {
-      console.error('Server-side extraction error:', error);
-      throw new Error(error.message || 'Failed to extract text from PDF');
+      if (error) {
+        console.error('Server-side extraction error:', error);
+        throw new Error(error.message || 'Failed to extract text from PDF');
+      }
+
+      if (!data?.text) {
+        throw new Error('No text was extracted from the PDF');
+      }
+
+      console.log(`Text extraction ${data.cached ? 'retrieved from cache' : 'completed'}:`, {
+        textLength: data.text.length,
+        pageCount: data.pageCount,
+        cached: data.cached
+      });
+
+      return data.text;
+    } catch (error) {
+      console.error('Error in server-side text extraction:', error);
+      throw new Error(error instanceof Error ? error.message : 'Failed to extract text from PDF. Please try again.');
     }
-
-    if (!data?.text) {
-      throw new Error('No text was extracted from the PDF');
-    }
-
-    console.log(`Text extraction ${data.cached ? 'retrieved from cache' : 'completed'}:`, {
-      textLength: data.text.length,
-      pageCount: data.pageCount,
-      cached: data.cached,
-      text: data.text
-    });
-
-    return data.text;
-  } catch (error) {
-    console.error('Error in server-side text extraction:', error);
-    throw new Error(error instanceof Error ? error.message : 'Failed to extract text from PDF. Please try again.');
-  }
-};
+  };
 
   const togglePlayPause = () => {
     if (!audioRef.current || !ttsAudio) return;
@@ -575,24 +432,19 @@ const extractTextFromPDF = async (bookId: string): Promise<string> => {
                   <BookOpen className="w-12 h-12 text-red-400 mx-auto mb-4" />
                   <h3 className="text-lg font-medium text-red-800 mb-2">Failed to load PDF</h3>
                   <p className="text-red-600 mb-4 text-sm">{pdfError}</p>
-                  <div className="space-y-2">
-                    <Button onClick={handleRetryLoad} variant="outline" size="sm">
-                      Retry Loading
-                    </Button>
-                    {pdfUrl && (
-                      <p className="text-xs text-red-500 break-all">
-                        URL: {pdfUrl}
-                      </p>
-                    )}
-                  </div>
+                  <Button onClick={() => window.location.reload()} variant="outline" size="sm">
+                    Retry Loading
+                  </Button>
                 </div>
               </div>
             ) : pdfUrl ? (
               <div className="w-full">
-                <PdfViewer 
-                  ref={pdfViewerRef}
-                  src={pdfUrl}
-                  style={{ width: '100%', height: '600px' }}
+                <PdfRenderer
+                  pdfUrl={pdfUrl}
+                  currentPage={currentPage}
+                  onPageChange={updatePage}
+                  onProgress={updateScrollProgress}
+                  className="w-full"
                 />
               </div>
             ) : (
@@ -726,17 +578,21 @@ const extractTextFromPDF = async (bookId: string): Promise<string> => {
               )}
 
               <Button variant="outline" className="w-full justify-start">
-                <Bookmark className="w-4 h-4 mr-2" />
-                Add Bookmark
-              </Button>
-
-              <Button variant="outline" className="w-full justify-start">
                 <Settings className="w-4 h-4 mr-2" />
                 Reading Settings
               </Button>
             </div>
           </CardContent>
         </Card>
+
+        {/* Bookmarks Panel */}
+        {selectedBookId && (
+          <BookmarksPanel
+            bookId={selectedBookId}
+            currentPage={currentPage}
+            onPageJump={updatePage}
+          />
+        )}
 
         {/* AI Features */}
         <Card className="border-stone-200">
@@ -787,48 +643,13 @@ const extractTextFromPDF = async (bookId: string): Promise<string> => {
             <h3 className="font-semibold text-stone-800 mb-4">Reading Progress</h3>
             
             <div className="space-y-4">
-              {/* Page Controls */}
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                  disabled={currentPage <= 1}
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </Button>
-                
-                <div className="flex-1 text-center">
-                  <input
-                    type="number"
-                    value={currentPage}
-                    onChange={(e) => setCurrentPage(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-16 px-2 py-1 text-center border border-stone-200 rounded text-sm"
-                    min="1"
-                    max={selectedBook?.page_count || undefined}
-                  />
-                  <span className="text-sm text-stone-500">
-                    {selectedBook?.page_count ? ` / ${selectedBook.page_count}` : ''}
-                  </span>
-                </div>
-                
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(currentPage + 1)}
-                  disabled={selectedBook?.page_count ? currentPage >= selectedBook.page_count : false}
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
-
               {/* Progress Bar */}
               {bookProgress && selectedBook?.page_count && (
                 <div className="space-y-2">
                   <Progress value={bookProgress.progress_percentage} className="w-full" />
                   <div className="flex justify-between text-xs text-stone-500">
                     <span>{Math.round(bookProgress.progress_percentage)}% complete</span>
-                    <span>Page {bookProgress.current_page} of {selectedBook.page_count}</span>
+                    <span>Page {currentPage} of {selectedBook.page_count}</span>
                   </div>
                 </div>
               )}
@@ -848,10 +669,19 @@ const extractTextFromPDF = async (bookId: string): Promise<string> => {
                       <span>Total Pages:</span>
                       <span>{selectedBook.page_count || 'Unknown'}</span>
                     </div>
+                    <div className="flex justify-between mb-1">
+                      <span>Reading Time:</span>
+                      <span>{Math.floor(readingTime / 60)}:{(readingTime % 60).toString().padStart(2, '0')}</span>
+                    </div>
                     {bookProgress && (
                       <div className="flex justify-between">
                         <span>Last Read:</span>
                         <span>{new Date(bookProgress.last_read_at).toLocaleDateString()}</span>
+                      </div>
+                    )}
+                    {isUpdating && (
+                      <div className="text-xs text-emerald-600 mt-2">
+                        Saving progress...
                       </div>
                     )}
                   </>
@@ -860,55 +690,7 @@ const extractTextFromPDF = async (bookId: string): Promise<string> => {
             </div>
           </CardContent>
         </Card>
-
-        {/* Debug Info (only show if there's an error) */}
-        {pdfError && (
-          <Card className="border-red-200 bg-red-50">
-            <CardContent className="p-4">
-              <h4 className="font-semibold text-red-800 mb-2">Debug Info</h4>
-              <div className="text-xs text-red-600 space-y-1">
-                <div>Book ID: {selectedBookId}</div>
-                <div>File Path: {selectedBook?.file_path}</div>
-                <div>PDF URL: {pdfUrl}</div>
-                <div>Error: {pdfError}</div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
       </div>
-
-      {/* AI Chat Drawer */}
-      {showAIChat && (
-        <div className="fixed inset-y-0 right-0 w-96 bg-white border-l border-stone-200 shadow-xl z-50 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-stone-800">Chat with Book</h3>
-            <Button variant="ghost" size="sm" onClick={() => setShowAIChat(false)}>
-              ×
-            </Button>
-          </div>
-          
-          <div className="flex-1 space-y-4">
-            <div className="bg-stone-100 rounded-lg p-4">
-              <p className="text-sm text-stone-700">
-                Hi! I'm your AI reading assistant. Ask me anything about "{selectedBook?.title}".
-              </p>
-            </div>
-            
-            <div className="flex-1"></div>
-            
-            <div className="border-t border-stone-200 pt-4">
-              <div className="flex gap-2">
-                <input 
-                  type="text" 
-                  placeholder="Ask about this book..."
-                  className="flex-1 px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-                <Button size="sm">Send</Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Book Summary Dialog */}
       <Dialog open={showSummaryDialog} onOpenChange={setShowSummaryDialog}>
