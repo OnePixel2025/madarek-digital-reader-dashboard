@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -100,4 +101,17 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* PDF.js CSS overrides for better integration */
+.react-pdf__Page {
+  margin: 0 !important;
+}
+
+.react-pdf__Page__textContent {
+  user-select: text;
+}
+
+.react-pdf__Page__annotations {
+  z-index: 1;
 }

@@ -1,11 +1,12 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw, RefreshCw, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-
-// Configure PDF.js worker using react-pdf's recommended approach
-pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { initializePdfWorker, getWorkerStatus } from '@/utils/pdfWorker';
+import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
+import 'react-pdf/dist/esm/Page/TextLayer.css';
 
 interface PdfRendererProps {
   pdfUrl: string;
@@ -28,18 +29,49 @@ export const PdfRenderer: React.FC<PdfRendererProps> = ({
   const [rotation, setRotation] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [workerReady, setWorkerReady] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+
+  // Initialize PDF worker on component mount
+  useEffect(() => {
+    const setupWorker = async () => {
+      console.log('Setting up PDF worker...');
+      const success = await initializePdfWorker();
+      setWorkerReady(success);
+      
+      if (!success) {
+        const { error } = getWorkerStatus();
+        setError(`PDF Worker initialization failed: ${error}`);
+        setLoading(false);
+      }
+    };
+
+    setupWorker();
+  }, []);
 
   const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     console.log('PDF loaded successfully with', numPages, 'pages');
     setTotalPages(numPages);
     setLoading(false);
     setError(null);
+    setRetryCount(0);
+    setLoadingProgress(100);
   };
 
   const onDocumentLoadError = (error: Error) => {
     console.error('Error loading PDF:', error);
     setError(error.message || 'Failed to load PDF');
     setLoading(false);
+    setLoadingProgress(0);
+  };
+
+  const onDocumentLoadProgress = ({ loaded, total }: { loaded: number; total: number }) => {
+    if (total > 0) {
+      const progress = Math.round((loaded / total) * 100);
+      setLoadingProgress(progress);
+      console.log(`PDF loading progress: ${progress}%`);
+    }
   };
 
   const onPageLoadSuccess = () => {
@@ -51,6 +83,23 @@ export const PdfRenderer: React.FC<PdfRendererProps> = ({
         viewportHeight: container.clientHeight,
         contentHeight: container.scrollHeight
       });
+    }
+  };
+
+  const onPageLoadError = (error: Error) => {
+    console.error('Error loading page:', error);
+  };
+
+  const handleRetry = async () => {
+    setRetryCount(prev => prev + 1);
+    setLoading(true);
+    setError(null);
+    setLoadingProgress(0);
+    
+    // Re-initialize worker if needed
+    if (!workerReady) {
+      const success = await initializePdfWorker();
+      setWorkerReady(success);
     }
   };
 
@@ -89,26 +138,77 @@ export const PdfRenderer: React.FC<PdfRendererProps> = ({
     }
   }, [onProgress]);
 
+  // Loading state
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96 border border-stone-200 rounded-lg">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mx-auto mb-4"></div>
-          <p className="text-stone-600">Loading PDF...</p>
+          <p className="text-stone-600 mb-2">Loading PDF...</p>
+          {loadingProgress > 0 && (
+            <div className="w-48 mx-auto">
+              <div className="bg-stone-200 rounded-full h-2">
+                <div 
+                  className="bg-emerald-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${loadingProgress}%` }}
+                />
+              </div>
+              <p className="text-xs text-stone-500 mt-1">{loadingProgress}%</p>
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
+  // Error state
   if (error) {
     return (
-      <div className="flex items-center justify-center h-96 border border-red-200 rounded-lg bg-red-50">
-        <div className="text-center">
-          <p className="text-red-600 mb-4">{error}</p>
+      <div className="flex flex-col gap-4 p-6 border border-red-200 rounded-lg bg-red-50">
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="ml-2">
+            <div className="space-y-2">
+              <p className="font-medium">PDF Loading Error</p>
+              <p className="text-sm">{error}</p>
+              {retryCount > 0 && (
+                <p className="text-xs">Retry attempt: {retryCount}</p>
+              )}
+            </div>
+          </AlertDescription>
+        </Alert>
+        
+        <div className="flex gap-2">
+          <Button onClick={handleRetry} variant="outline" size="sm">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Retry Loading
+          </Button>
           <Button onClick={() => window.location.reload()} variant="outline" size="sm">
-            Retry
+            Refresh Page
           </Button>
         </div>
+      </div>
+    );
+  }
+
+  // Worker not ready state
+  if (!workerReady) {
+    return (
+      <div className="flex flex-col gap-4 p-6 border border-amber-200 rounded-lg bg-amber-50">
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="ml-2">
+            <div className="space-y-2">
+              <p className="font-medium">PDF Worker Initializing</p>
+              <p className="text-sm">Setting up PDF rendering engine...</p>
+            </div>
+          </AlertDescription>
+        </Alert>
+        
+        <Button onClick={handleRetry} variant="outline" size="sm">
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Retry Setup
+        </Button>
       </div>
     );
   }
@@ -172,14 +272,21 @@ export const PdfRenderer: React.FC<PdfRendererProps> = ({
             file={pdfUrl}
             onLoadSuccess={onDocumentLoadSuccess}
             onLoadError={onDocumentLoadError}
+            onLoadProgress={onDocumentLoadProgress}
             loading={
               <div className="flex items-center justify-center p-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mx-auto mb-2"></div>
+                  <p className="text-sm text-stone-600">Loading document...</p>
+                </div>
               </div>
             }
             error={
               <div className="flex items-center justify-center p-8 text-red-600">
-                <p>Failed to load PDF</p>
+                <div className="text-center">
+                  <AlertCircle className="w-8 h-8 mx-auto mb-2" />
+                  <p>Failed to load PDF document</p>
+                </div>
               </div>
             }
           >
@@ -188,15 +295,22 @@ export const PdfRenderer: React.FC<PdfRendererProps> = ({
               scale={scale}
               rotate={rotation}
               onLoadSuccess={onPageLoadSuccess}
+              onLoadError={onPageLoadError}
               className="border border-stone-300 shadow-lg bg-white"
               loading={
                 <div className="flex items-center justify-center p-8 border border-stone-300 bg-white" style={{ width: 612 * scale, height: 792 * scale }}>
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-600"></div>
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-600 mx-auto mb-2"></div>
+                    <p className="text-xs text-stone-600">Loading page...</p>
+                  </div>
                 </div>
               }
               error={
                 <div className="flex items-center justify-center p-8 border border-red-300 bg-red-50 text-red-600" style={{ width: 612 * scale, height: 792 * scale }}>
-                  <p>Failed to load page</p>
+                  <div className="text-center">
+                    <AlertCircle className="w-6 h-6 mx-auto mb-2" />
+                    <p className="text-sm">Failed to load page</p>
+                  </div>
                 </div>
               }
             />
