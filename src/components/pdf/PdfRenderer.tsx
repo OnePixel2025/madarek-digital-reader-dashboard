@@ -1,11 +1,13 @@
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import * as pdfjsLib from 'pdfjs-dist';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { Document, Page, pdfjs } from 'react-pdf';
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
+import 'react-pdf/dist/esm/Page/TextLayer.css';
 
-// Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// Configure PDF.js worker using react-pdf's recommended approach
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
 
 interface PdfRendererProps {
   pdfUrl: string;
@@ -22,89 +24,37 @@ export const PdfRenderer: React.FC<PdfRendererProps> = ({
   onProgress,
   className = ''
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
   const [totalPages, setTotalPages] = useState(0);
   const [scale, setScale] = useState(1.2);
   const [rotation, setRotation] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load PDF document
-  useEffect(() => {
-    const loadPdf = async () => {
-      if (!pdfUrl) return;
-      
-      setLoading(true);
-      setError(null);
-      
-      try {
-        const pdf = await pdfjsLib.getDocument({
-          url: pdfUrl,
-          isEvalSupported: false
-        }).promise;
-        
-        setPdfDoc(pdf);
-        setTotalPages(pdf.numPages);
-        setLoading(false);
-      } catch (err) {
-        console.error('Error loading PDF:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load PDF');
-        setLoading(false);
-      }
-    };
+  const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
+    console.log('PDF loaded successfully with', numPages, 'pages');
+    setTotalPages(numPages);
+    setLoading(false);
+    setError(null);
+  };
 
-    loadPdf();
-  }, [pdfUrl]);
+  const onDocumentLoadError = (error: Error) => {
+    console.error('Error loading PDF:', error);
+    setError(error.message || 'Failed to load PDF');
+    setLoading(false);
+  };
 
-  // Render current page
-  const renderPage = useCallback(async (pageNumber: number) => {
-    if (!pdfDoc || !canvasRef.current) return;
-
-    try {
-      const page = await pdfDoc.getPage(pageNumber);
-      const canvas = canvasRef.current;
-      const context = canvas.getContext('2d');
-      
-      if (!context) return;
-
-      const viewport = page.getViewport({ scale, rotation });
-      
-      // Set canvas dimensions
-      canvas.height = viewport.height;
-      canvas.width = viewport.width;
-      
-      // Clear canvas
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      
-      // Render page
-      await page.render({
-        canvasContext: context,
-        viewport: viewport
-      }).promise;
-
-      // Report progress
-      if (onProgress && containerRef.current) {
-        const container = containerRef.current;
-        onProgress({
-          scrollPosition: container.scrollTop,
-          viewportHeight: container.clientHeight,
-          contentHeight: container.scrollHeight
-        });
-      }
-    } catch (err) {
-      console.error('Error rendering page:', err);
-      setError('Failed to render page');
+  const onPageLoadSuccess = () => {
+    // Report progress when page loads
+    if (onProgress && containerRef.current) {
+      const container = containerRef.current;
+      onProgress({
+        scrollPosition: container.scrollTop,
+        viewportHeight: container.clientHeight,
+        contentHeight: container.scrollHeight
+      });
     }
-  }, [pdfDoc, scale, rotation, onProgress]);
-
-  // Render page when dependencies change
-  useEffect(() => {
-    if (pdfDoc && currentPage > 0 && currentPage <= totalPages) {
-      renderPage(currentPage);
-    }
-  }, [pdfDoc, currentPage, scale, rotation, renderPage, totalPages]);
+  };
 
   const handlePrevPage = () => {
     if (currentPage > 1) {
@@ -212,7 +162,7 @@ export const PdfRenderer: React.FC<PdfRendererProps> = ({
         </div>
       </div>
 
-      {/* PDF Canvas Container */}
+      {/* PDF Document Container */}
       <div 
         ref={containerRef}
         className="flex-1 overflow-auto border-x border-b border-stone-200 rounded-b-lg bg-gray-100"
@@ -220,11 +170,39 @@ export const PdfRenderer: React.FC<PdfRendererProps> = ({
         style={{ maxHeight: '600px' }}
       >
         <div className="flex justify-center p-4">
-          <canvas 
-            ref={canvasRef}
-            className="border border-stone-300 shadow-lg bg-white"
-            style={{ maxWidth: '100%', height: 'auto' }}
-          />
+          <Document
+            file={pdfUrl}
+            onLoadSuccess={onDocumentLoadSuccess}
+            onLoadError={onDocumentLoadError}
+            loading={
+              <div className="flex items-center justify-center p-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+              </div>
+            }
+            error={
+              <div className="flex items-center justify-center p-8 text-red-600">
+                <p>Failed to load PDF</p>
+              </div>
+            }
+          >
+            <Page
+              pageNumber={currentPage}
+              scale={scale}
+              rotate={rotation}
+              onLoadSuccess={onPageLoadSuccess}
+              className="border border-stone-300 shadow-lg bg-white"
+              loading={
+                <div className="flex items-center justify-center p-8 border border-stone-300 bg-white" style={{ width: 612 * scale, height: 792 * scale }}>
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-600"></div>
+                </div>
+              }
+              error={
+                <div className="flex items-center justify-center p-8 border border-red-300 bg-red-50 text-red-600" style={{ width: 612 * scale, height: 792 * scale }}>
+                  <p>Failed to load page</p>
+                </div>
+              }
+            />
+          </Document>
         </div>
       </div>
     </div>
