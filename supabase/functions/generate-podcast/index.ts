@@ -22,29 +22,36 @@ serve(async (req) => {
 
     console.log(`Processing chunk ${chunkIndex + 1}/${totalChunks} for book ${bookId}`);
 
-    // Generate speech from text using OpenAI
-    const response = await fetch('https://api.openai.com/v1/audio/speech', {
+    // Generate speech from text using Google Cloud Text-to-Speech
+    const response = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${Deno.env.get('GOOGLE_API_KEY')}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'tts-1',
-        input: chunkText,
-        voice: voice,
-        response_format: 'mp3',
-        speed: 1.0
+        input: { text: chunkText },
+        voice: {
+          languageCode: 'en-US',
+          name: voice || 'en-US-Neural2-D', // Default to a neural voice
+          ssmlGender: 'NEUTRAL',
+        },
+        audioConfig: {
+          audioEncoding: 'MP3',
+          speakingRate: 1.0,
+          pitch: 0.0,
+        },
       }),
     });
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.error?.message || 'Failed to generate speech');
+      throw new Error(error.error?.message || 'Failed to generate speech with Google TTS');
     }
 
-    // Get the audio buffer
-    const audioBuffer = await response.arrayBuffer();
+    // Get the response and extract base64 audio content
+    const data = await response.json();
+    const audioContent = data.audioContent; // This is already base64 encoded
+    const audioBuffer = Uint8Array.from(atob(audioContent), c => c.charCodeAt(0)).buffer;
     
     // Upload audio chunk to Supabase Storage
     const fileName = `${bookId}/chunk_${chunkIndex.toString().padStart(4, '0')}.mp3`;
