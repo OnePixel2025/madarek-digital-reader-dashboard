@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BookOpen, Mic, MicOff, MessageCircle, Brain, Settings, X, Play, Pause, Volume2, VolumeX, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw, Maximize2, Minimize2 } from 'lucide-react';
+import { Document, Page, pdfjs } from 'react-pdf';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -20,6 +21,9 @@ interface Book {
   page_count: number | null;
 }
 
+// Set PDF.js worker
+pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+
 // Enhanced PDF Viewer Component with controls
 const EnhancedPdfViewer = ({ 
   pdfUrl, 
@@ -29,100 +33,33 @@ const EnhancedPdfViewer = ({
   totalPages, 
   className = "" 
 }) => {
-  const canvasRef = useRef(null);
   const containerRef = useRef(null);
-  const [pdfDoc, setPdfDoc] = useState(null);
   const [scale, setScale] = useState(1.2);
   const [rotation, setRotation] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [renderTask, setRenderTask] = useState(null);
   const [pageInput, setPageInput] = useState(currentPage.toString());
   const [isLoading, setIsLoading] = useState(false);
   const [readingStartTime, setReadingStartTime] = useState(Date.now());
   const [scrollProgress, setScrollProgress] = useState(0);
-
-  // Load PDF.js dynamically
-  useEffect(() => {
-    const loadPdfJs = async () => {
-      if (window.pdfjsLib) return;
-      
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-      script.onload = () => {
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      };
-      document.head.appendChild(script);
-      
-      await new Promise(resolve => script.onload = resolve);
-    };
-    
-    loadPdfJs();
-  }, []);
-
-  // Load PDF document
-  useEffect(() => {
-    const loadPdf = async () => {
-      if (!pdfUrl || !window.pdfjsLib) return;
-      
-      try {
-        setIsLoading(true);
-        const pdf = await window.pdfjsLib.getDocument(pdfUrl).promise;
-        setPdfDoc(pdf);
-        setIsLoading(false);
-      } catch (error) {
-        console.error('Error loading PDF:', error);
-        setIsLoading(false);
-      }
-    };
-    
-    loadPdf();
-  }, [pdfUrl]);
+  const [numPages, setNumPages] = useState(null);
+  const [error, setError] = useState(null);
 
   // Update page input when currentPage changes
   useEffect(() => {
     setPageInput(currentPage.toString());
   }, [currentPage]);
 
-  // Render page
-  const renderPage = useCallback(async (pageNum) => {
-    if (!pdfDoc || !canvasRef.current) return;
-    
-    try {
-      // Cancel previous render task
-      if (renderTask) {
-        renderTask.cancel();
-      }
+  const onDocumentLoadSuccess = ({ numPages }) => {
+    setNumPages(numPages);
+    setIsLoading(false);
+    setError(null);
+  };
 
-      const page = await pdfDoc.getPage(pageNum);
-      const canvas = canvasRef.current;
-      const context = canvas.getContext('2d');
-      
-      const viewport = page.getViewport({ scale, rotation });
-      canvas.height = viewport.height;
-      canvas.width = viewport.width;
-      
-      const renderContext = {
-        canvasContext: context,
-        viewport: viewport
-      };
-      
-      const task = page.render(renderContext);
-      setRenderTask(task);
-      
-      await task.promise;
-      setRenderTask(null);
-      
-    } catch (error) {
-      if (error.name !== 'RenderingCancelledException') {
-        console.error('Error rendering page:', error);
-      }
-    }
-  }, [pdfDoc, scale, rotation, renderTask]);
-
-  // Render current page when dependencies change
-  useEffect(() => {
-    renderPage(currentPage);
-  }, [renderPage, currentPage]);
+  const onDocumentLoadError = (error) => {
+    console.error('Error loading PDF:', error);
+    setError(error);
+    setIsLoading(false);
+  };
 
   // Handle scroll for reading progress
   useEffect(() => {
@@ -291,11 +228,34 @@ const EnhancedPdfViewer = ({
       >
         <div className="flex justify-center p-4">
           <div className="bg-white shadow-lg">
-            <canvas
-              ref={canvasRef}
-              className="max-w-full h-auto"
-              style={{ transform: `rotate(${rotation}deg)` }}
-            />
+            {error ? (
+              <div className="p-8 text-center">
+                <p className="text-red-600 mb-4">Error loading PDF</p>
+                <p className="text-sm text-stone-600">{error.message}</p>
+              </div>
+            ) : (
+              <Document
+                file={pdfUrl}
+                onLoadSuccess={onDocumentLoadSuccess}
+                onLoadError={onDocumentLoadError}
+                loading={
+                  <div className="flex items-center justify-center p-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+                  </div>
+                }
+              >
+                <Page
+                  pageNumber={currentPage}
+                  scale={scale}
+                  rotate={rotation}
+                  loading={
+                    <div className="flex items-center justify-center p-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+                    </div>
+                  }
+                />
+              </Document>
+            )}
           </div>
         </div>
         
