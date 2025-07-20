@@ -122,8 +122,7 @@ const EnhancedPdfViewer = ({
     renderPage();
   }, [pdfDoc, currentPage, scale, rotation]);
 
-  // In EnhancedPdfViewer component
-useEffect(() => {
+  useEffect(() => {
   const scrollContainer = scrollContainerRef.current;
   if (!scrollContainer) return;
 
@@ -133,8 +132,7 @@ useEffect(() => {
     const scrollPercentage = maxScroll > 0 
       ? Math.min(100, (scrollTop / maxScroll) * 100) 
       : 100;
-    setScrollProgress(scrollPercentage);
-    onScrollProgress?.(scrollPercentage); // Pass this up to parent
+    onScrollProgress?.(scrollPercentage); // Correctly passing scroll progress
   };
 
   scrollContainer.addEventListener('scroll', handleScroll);
@@ -631,17 +629,11 @@ export const ReadBook = () => {
   const calculateOverallProgress = () => {
   if (!selectedBook?.page_count) return 0;
   
-  // Calculate progress from pages read
   const pageProgress = ((currentPage - 1) / selectedBook.page_count) * 100;
-  
-  // Get scroll progress from the PDF viewer (0-100)
-  const currentPageScrollProgress = scrollProgress; 
-  
-  // Calculate weighted progress (current page contributes 1/page_count to total progress)
   const currentPageWeight = (1 / selectedBook.page_count) * 100;
-  const currentPageContribution = (currentPageScrollProgress / 100) * currentPageWeight;
+  const currentPageContribution = (scrollProgress / 100) * currentPageWeight;
   
-  return pageProgress + currentPageContribution;
+  return pageProgress + currentPageContribution; // Accurate progress calculation
 };
 
   if (booksLoading) {
