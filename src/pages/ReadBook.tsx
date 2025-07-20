@@ -20,12 +20,11 @@ interface Book {
   page_count: number | null;
 }
 
-// Enhanced PDF Viewer Component with controls
+// Enhanced PDF Viewer Component with simplified controls (no built-in progress)
 const EnhancedPdfViewer = ({ 
   pdfUrl, 
   currentPage, 
   onPageChange, 
-  onProgress, 
   totalPages, 
   className = "" 
 }) => {
@@ -40,15 +39,6 @@ const EnhancedPdfViewer = ({
   const [pdfLib, setPdfLib] = useState(null);
   const [pdfDoc, setPdfDoc] = useState(null);
   const [pageRendering, setPageRendering] = useState(false);
-  
-  // Progress tracking states
-  const [readingProgress, setReadingProgress] = useState(0);
-  const [scrollProgress, setScrollProgress] = useState(0);
-  const [timeSpentOnPage, setTimeSpentOnPage] = useState(0);
-  const [pageStartTime, setPageStartTime] = useState(Date.now());
-  const [totalReadingTime, setTotalReadingTime] = useState(0);
-  const [pagesRead, setPagesRead] = useState(new Set());
-  const timeIntervalRef = useRef(null);
 
   // Load PDF.js from CDN
   useEffect(() => {
@@ -92,41 +82,6 @@ const EnhancedPdfViewer = ({
     loadPDF();
   }, [pdfLib, pdfUrl]);
 
-  // Track time spent on current page
-  useEffect(() => {
-    setPageStartTime(Date.now());
-    setTimeSpentOnPage(0);
-
-    if (timeIntervalRef.current) {
-      clearInterval(timeIntervalRef.current);
-    }
-
-    timeIntervalRef.current = setInterval(() => {
-      setTimeSpentOnPage(prev => prev + 1);
-      setTotalReadingTime(prev => prev + 1);
-    }, 1000);
-
-    return () => {
-      if (timeIntervalRef.current) {
-        clearInterval(timeIntervalRef.current);
-      }
-    };
-  }, [currentPage]);
-
-  // Update pages read and calculate progress
-  useEffect(() => {
-    if (currentPage && totalPages) {
-      setPagesRead(prev => {
-        const newPagesRead = new Set(prev);
-        newPagesRead.add(currentPage);
-        const progressPercentage = (newPagesRead.size / totalPages) * 100;
-        setReadingProgress(progressPercentage);
-        onProgress?.(progressPercentage);
-        return newPagesRead;
-      });
-    }
-  }, [currentPage, totalPages, onProgress]);
-
   // Render current page
   useEffect(() => {
     if (!pdfDoc || !canvasRef.current || pageRendering) return;
@@ -159,24 +114,6 @@ const EnhancedPdfViewer = ({
     renderPage();
   }, [pdfDoc, currentPage, scale, rotation]);
 
-  // Scroll tracking for current page progress
-  useEffect(() => {
-    const scrollContainer = scrollContainerRef.current;
-    if (!scrollContainer) return;
-
-    const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
-      const maxScroll = scrollHeight - clientHeight;
-      const scrollPercentage = maxScroll > 0 
-        ? Math.min(100, (scrollTop / maxScroll) * 100) 
-        : 100;
-      setScrollProgress(scrollPercentage);
-    };
-
-    scrollContainer.addEventListener('scroll', handleScroll);
-    return () => scrollContainer.removeEventListener('scroll', handleScroll);
-  }, []);
-
   const handlePrevPage = () => currentPage > 1 && onPageChange(currentPage - 1);
   const handleNextPage = () => currentPage < totalPages && onPageChange(currentPage + 1);
   const handleZoomIn = () => setScale(prev => Math.min(prev + 0.2, 3));
@@ -191,12 +128,6 @@ const EnhancedPdfViewer = ({
       document.exitFullscreen?.();
       setIsFullscreen(false);
     }
-  };
-
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   if (isLoading) {
@@ -227,7 +158,7 @@ const EnhancedPdfViewer = ({
 
   return (
     <div ref={containerRef} className={`border border-stone-200 rounded-lg overflow-hidden ${className}`}>
-      {/* PDF Controls */}
+      {/* PDF Controls - Simplified without progress */}
       <div className="bg-stone-50 border-b border-stone-200 p-3 flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <Button
@@ -272,50 +203,14 @@ const EnhancedPdfViewer = ({
         </div>
       </div>
       
-      {/* Progress Section */}
-      <div className="bg-stone-50 border-b border-stone-200 px-3 py-2">
-        <div className="space-y-2">
-          <div>
-            <div className="flex items-center justify-between text-xs text-stone-600 mb-1">
-              <span>Reading Progress</span>
-              <span>{Math.round(readingProgress)}% ({pagesRead.size}/{totalPages} pages)</span>
-            </div>
-            <div className="w-full bg-stone-200 rounded-full h-1.5">
-              <div 
-                className="bg-emerald-600 h-1.5 rounded-full transition-all duration-300"
-                style={{ width: `${readingProgress}%` }}
-              />
-            </div>
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between text-xs text-stone-600 mb-1">
-              <span>Page Progress</span>
-              <span>{Math.round(scrollProgress)}%</span>
-            </div>
-            <div className="w-full bg-stone-200 rounded-full h-1">
-              <div 
-                className="bg-blue-500 h-1 rounded-full transition-all duration-150"
-                style={{ width: `${scrollProgress}%` }}
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between text-xs text-stone-500">
-            <span>Time on page: {formatTime(timeSpentOnPage)}</span>
-            <span>Total time: {formatTime(totalReadingTime)}</span>
-          </div>
-        </div>
-      </div>
-      
-      {/* PDF Viewer */}
+      {/* PDF Viewer - Made scrollable */}
       <div
         ref={scrollContainerRef}
         className="bg-stone-100 overflow-auto"
-        style={{ height: isFullscreen ? 'calc(100vh - 120px)' : '600px' }}
+        style={{ height: isFullscreen ? 'calc(100vh - 80px)' : '700px' }}
       >
         <div className="flex justify-center p-4">
-          <div className="bg-white shadow-lg">
+          <div className="bg-white shadow-lg relative">
             <canvas ref={canvasRef} className="max-w-full h-auto" />
             {pageRendering && (
               <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75">
@@ -351,6 +246,14 @@ export const ReadBook = () => {
   const [duration, setDuration] = useState(0);
   const [selectedVoice, setSelectedVoice] = useState('Aria');
   const audioRef = useRef(null);
+
+  // Reading progress tracking states for sidebar
+  const [readingProgress, setReadingProgress] = useState(0);
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const [timeSpentOnPage, setTimeSpentOnPage] = useState(0);
+  const [totalReadingTime, setTotalReadingTime] = useState(0);
+  const [pagesRead, setPagesRead] = useState(new Set());
+  const timeIntervalRef = useRef(null);
 
   // Load summary from localStorage when book changes
   useEffect(() => {
@@ -450,6 +353,39 @@ export const ReadBook = () => {
     bookId: selectedBookId || '', 
     totalPages: selectedBook?.page_count || undefined 
   });
+
+  // Track time spent on current page (for sidebar progress)
+  useEffect(() => {
+    setTimeSpentOnPage(0);
+
+    if (timeIntervalRef.current) {
+      clearInterval(timeIntervalRef.current);
+    }
+
+    timeIntervalRef.current = setInterval(() => {
+      setTimeSpentOnPage(prev => prev + 1);
+      setTotalReadingTime(prev => prev + 1);
+    }, 1000);
+
+    return () => {
+      if (timeIntervalRef.current) {
+        clearInterval(timeIntervalRef.current);
+      }
+    };
+  }, [currentPage]);
+
+  // Update pages read and calculate progress for sidebar
+  useEffect(() => {
+    if (currentPage && selectedBook?.page_count) {
+      setPagesRead(prev => {
+        const newPagesRead = new Set(prev);
+        newPagesRead.add(currentPage);
+        const progressPercentage = (newPagesRead.size / selectedBook.page_count) * 100;
+        setReadingProgress(progressPercentage);
+        return newPagesRead;
+      });
+    }
+  }, [currentPage, selectedBook?.page_count]);
 
   // Fetch reading progress for selected book
   const { data: bookProgress } = useQuery({
@@ -748,7 +684,6 @@ export const ReadBook = () => {
                   currentPage={currentPage}
                   totalPages={selectedBook?.page_count || 1}
                   onPageChange={updatePage}
-                  onProgress={updateScrollProgress}
                   className="w-full"
                 />
               </div>
@@ -764,7 +699,7 @@ export const ReadBook = () => {
         </div>
       </div>
 
-      {/* Reading Tools Sidebar - Rest of the component remains the same */}
+      {/* Reading Tools Sidebar */}
       <div className="w-80 space-y-6">
         {/* Reading Controls */}
         <Card className="border-stone-200">
@@ -837,13 +772,12 @@ export const ReadBook = () => {
                         <div className="flex justify-between text-xs text-stone-500">
                           <span>{formatTime(currentTime)}</span>
                           <span>{formatTime(duration)}</span>
-                        </div>
-                        <div className="w-full bg-stone-200 rounded-full h-1">
-                          <div 
-                            className="bg-emerald-600 h-1 rounded-full transition-all"
-                            style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
-                          />
-                        </div>
+                                                </div>
+                      <div className="w-full bg-stone-200 rounded-full h-1">
+                        <div 
+                          className="bg-emerald-600 h-1 rounded-full transition-all"
+                          style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
+                        />
                       </div>
                       
                       {/* Volume Control */}
@@ -976,7 +910,7 @@ export const ReadBook = () => {
                     </div>
                     <div className="flex justify-between mb-1">
                       <span>Reading Time:</span>
-                      <span>{Math.floor(readingTime / 60)}:{(readingTime % 60).toString().padStart(2, '0')}</span>
+                      <span>{formatTime(readingTime)}</span>
                     </div>
                     {bookProgress && (
                       <div className="flex justify-between">
