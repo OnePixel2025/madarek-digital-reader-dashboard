@@ -52,7 +52,7 @@ export const Dashboard = () => {
         .from('user_reading_stats')
         .select('total_books_read, total_reading_hours')
         .eq('user_id', user.id)
-        .maybeSingle();
+        .single();
 
       // Fetch favorites count
       const { count: favoritesCount } = await supabase
@@ -102,7 +102,7 @@ export const Dashboard = () => {
         .eq('is_completed', false)
         .order('last_read_at', { ascending: false })
         .limit(1)
-        .maybeSingle();
+        .single();
 
       setUserStats({
         total_books_read: stats?.total_books_read || 0,

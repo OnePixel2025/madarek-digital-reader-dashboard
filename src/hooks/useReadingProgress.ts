@@ -54,7 +54,6 @@ export const useReadingProgress = ({ bookId, totalPages }: UseReadingProgressPro
   useEffect(() => {
     if (bookId && user?.id && isLoaded) {
       setSessionStart(new Date());
-      setReadingTime(0); // Reset reading time for new session
       
       // Start timer for reading time
       const interval = setInterval(() => {
@@ -91,8 +90,6 @@ export const useReadingProgress = ({ bookId, totalPages }: UseReadingProgressPro
           is_completed: isCompleted,
           completed_at: isCompleted ? new Date().toISOString() : null,
           last_read_at: new Date().toISOString()
-        }, {
-          onConflict: 'user_id,book_id'
         });
 
       if (error) throw error;
