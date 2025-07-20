@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BookOpen, Mic, MicOff, MessageCircle, Brain, Settings, X, Play, Pause, Volume2, VolumeX, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw, Maximize2, Minimize2 } from 'lucide-react';
-import { Document, Page, pdfjs } from 'react-pdf';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -21,9 +20,6 @@ interface Book {
   page_count: number | null;
 }
 
-// Set PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
-
 // Enhanced PDF Viewer Component with controls
 const EnhancedPdfViewer = ({ 
   pdfUrl, 
@@ -34,102 +30,158 @@ const EnhancedPdfViewer = ({
   className = "" 
 }) => {
   const containerRef = useRef(null);
+  const scrollContainerRef = useRef(null);
+  const canvasRef = useRef(null);
   const [scale, setScale] = useState(1.2);
   const [rotation, setRotation] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [pageInput, setPageInput] = useState(currentPage.toString());
-  const [isLoading, setIsLoading] = useState(false);
-  const [readingStartTime, setReadingStartTime] = useState(Date.now());
-  const [scrollProgress, setScrollProgress] = useState(0);
-  const [numPages, setNumPages] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [pdfLib, setPdfLib] = useState(null);
+  const [pdfDoc, setPdfDoc] = useState(null);
+  const [pageRendering, setPageRendering] = useState(false);
+  
+  // Progress tracking states
+  const [readingProgress, setReadingProgress] = useState(0);
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const [timeSpentOnPage, setTimeSpentOnPage] = useState(0);
+  const [pageStartTime, setPageStartTime] = useState(Date.now());
+  const [totalReadingTime, setTotalReadingTime] = useState(0);
+  const [pagesRead, setPagesRead] = useState(new Set());
+  const timeIntervalRef = useRef(null);
 
-  // Update page input when currentPage changes
+  // Load PDF.js from CDN
   useEffect(() => {
-    setPageInput(currentPage.toString());
-  }, [currentPage]);
+    if (window.pdfjsLib) {
+      setPdfLib(window.pdfjsLib);
+      return;
+    }
 
-  const onDocumentLoadSuccess = ({ numPages }) => {
-    setNumPages(numPages);
-    setIsLoading(false);
-    setError(null);
-  };
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    script.onload = () => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      setPdfLib(window.pdfjsLib);
+    };
+    document.head.appendChild(script);
 
-  const onDocumentLoadError = (error) => {
-    console.error('Error loading PDF:', error);
-    setError(error);
-    setIsLoading(false);
-  };
+    return () => {
+      document.head.removeChild(script);
+    };
+  }, []);
 
-  // Handle scroll for reading progress
+  // Initialize PDF document when URL and library are available
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    if (!pdfLib || !pdfUrl) return;
 
-    const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = container;
-      const progress = scrollHeight > clientHeight ? 
-        Math.min(100, (scrollTop / (scrollHeight - clientHeight)) * 100) : 100;
-      
-      setScrollProgress(progress);
-      
-      // Update reading progress with scroll position
-      onProgress?.(progress);
-      
-      // Track reading time (simple implementation)
-      const timeSpent = Math.floor((Date.now() - readingStartTime) / 1000);
-      if (timeSpent > 0 && timeSpent % 30 === 0) { // Every 30 seconds
-        // This would trigger the reading progress update
-        onProgress?.(progress);
+    const loadPDF = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        const pdf = await pdfLib.getDocument(pdfUrl).promise;
+        setPdfDoc(pdf);
+        setIsLoading(false);
+      } catch (err) {
+        console.error('Error loading PDF:', err);
+        setError(err.message);
+        setIsLoading(false);
       }
     };
 
-    container.addEventListener('scroll', handleScroll);
-    return () => container.removeEventListener('scroll', handleScroll);
-  }, [onProgress, readingStartTime]);
+    loadPDF();
+  }, [pdfLib, pdfUrl]);
 
-  // Reset reading start time when page changes
+  // Track time spent on current page
   useEffect(() => {
-    setReadingStartTime(Date.now());
+    setPageStartTime(Date.now());
+    setTimeSpentOnPage(0);
+
+    if (timeIntervalRef.current) {
+      clearInterval(timeIntervalRef.current);
+    }
+
+    timeIntervalRef.current = setInterval(() => {
+      setTimeSpentOnPage(prev => prev + 1);
+      setTotalReadingTime(prev => prev + 1);
+    }, 1000);
+
+    return () => {
+      if (timeIntervalRef.current) {
+        clearInterval(timeIntervalRef.current);
+      }
+    };
   }, [currentPage]);
 
-  const handlePrevPage = () => {
-    if (currentPage > 1) {
-      onPageChange(currentPage - 1);
+  // Update pages read and calculate progress
+  useEffect(() => {
+    if (currentPage && totalPages) {
+      setPagesRead(prev => {
+        const newPagesRead = new Set(prev);
+        newPagesRead.add(currentPage);
+        const progressPercentage = (newPagesRead.size / totalPages) * 100;
+        setReadingProgress(progressPercentage);
+        onProgress?.(progressPercentage);
+        return newPagesRead;
+      });
     }
-  };
+  }, [currentPage, totalPages, onProgress]);
 
-  const handleNextPage = () => {
-    if (currentPage < totalPages) {
-      onPageChange(currentPage + 1);
-    }
-  };
+  // Render current page
+  useEffect(() => {
+    if (!pdfDoc || !canvasRef.current || pageRendering) return;
 
-  const handlePageInputChange = (e) => {
-    setPageInput(e.target.value);
-  };
+    const renderPage = async () => {
+      setPageRendering(true);
+      try {
+        const page = await pdfDoc.getPage(currentPage);
+        const canvas = canvasRef.current;
+        const context = canvas.getContext('2d');
+        const viewport = page.getViewport({ scale, rotation });
 
-  const handlePageInputSubmit = (e) => {
-    e.preventDefault();
-    const pageNum = parseInt(pageInput);
-    if (pageNum >= 1 && pageNum <= totalPages) {
-      onPageChange(pageNum);
-    } else {
-      setPageInput(currentPage.toString());
-    }
-  };
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
 
-  const handleZoomIn = () => {
-    setScale(prev => Math.min(prev + 0.2, 3));
-  };
+        context.clearRect(0, 0, canvas.width, canvas.height);
 
-  const handleZoomOut = () => {
-    setScale(prev => Math.max(prev - 0.2, 0.5));
-  };
+        await page.render({
+          canvasContext: context,
+          viewport: viewport
+        }).promise;
+      } catch (err) {
+        console.error('Error rendering page:', err);
+        setError(err.message);
+      } finally {
+        setPageRendering(false);
+      }
+    };
 
-  const handleRotate = () => {
-    setRotation(prev => (prev + 90) % 360);
-  };
+    renderPage();
+  }, [pdfDoc, currentPage, scale, rotation]);
+
+  // Scroll tracking for current page progress
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+      const maxScroll = scrollHeight - clientHeight;
+      const scrollPercentage = maxScroll > 0 
+        ? Math.min(100, (scrollTop / maxScroll) * 100) 
+        : 100;
+      setScrollProgress(scrollPercentage);
+    };
+
+    scrollContainer.addEventListener('scroll', handleScroll);
+    return () => scrollContainer.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const handlePrevPage = () => currentPage > 1 && onPageChange(currentPage - 1);
+  const handleNextPage = () => currentPage < totalPages && onPageChange(currentPage + 1);
+  const handleZoomIn = () => setScale(prev => Math.min(prev + 0.2, 3));
+  const handleZoomOut = () => setScale(prev => Math.max(prev - 0.2, 0.5));
+  const handleRotate = () => setRotation(prev => (prev + 90) % 360);
 
   const toggleFullscreen = () => {
     if (!isFullscreen) {
@@ -141,15 +193,11 @@ const EnhancedPdfViewer = ({
     }
   };
 
-  // Listen for fullscreen changes
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
-    
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, []);
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
 
   if (isLoading) {
     return (
@@ -162,8 +210,23 @@ const EnhancedPdfViewer = ({
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex items-center justify-center p-8 border-2 border-dashed border-stone-200 rounded-lg w-full h-96">
+        <div className="text-center">
+          <BookOpen className="w-12 h-12 text-red-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-red-800 mb-2">Failed to load PDF</h3>
+          <p className="text-red-600 mb-4 text-sm">{error}</p>
+          <Button onClick={() => window.location.reload()} variant="outline" size="sm">
+            Retry Loading
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`border border-stone-200 rounded-lg overflow-hidden ${className}`}>
+    <div ref={containerRef} className={`border border-stone-200 rounded-lg overflow-hidden ${className}`}>
       {/* PDF Controls */}
       <div className="bg-stone-50 border-b border-stone-200 p-3 flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
@@ -177,18 +240,7 @@ const EnhancedPdfViewer = ({
           </Button>
           
           <div className="flex items-center gap-1">
-            <span className="text-sm text-stone-600">Page</span>
-            <form onSubmit={handlePageInputSubmit} className="flex items-center">
-              <input
-                type="number"
-                value={pageInput}
-                onChange={handlePageInputChange}
-                min="1"
-                max={totalPages}
-                className="w-12 px-1 py-1 text-sm border border-stone-300 rounded text-center focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              />
-            </form>
-            <span className="text-sm text-stone-600">of {totalPages}</span>
+            <span className="text-sm text-stone-600">Page {currentPage} of {totalPages}</span>
           </div>
           
           <Button
@@ -220,56 +272,56 @@ const EnhancedPdfViewer = ({
         </div>
       </div>
       
-      {/* PDF Viewer */}
-      <div
-        ref={containerRef}
-        className="bg-stone-100 overflow-auto"
-        style={{ height: isFullscreen ? '100vh' : '600px' }}
-      >
-        <div className="flex justify-center p-4">
-          <div className="bg-white shadow-lg">
-            {error ? (
-              <div className="p-8 text-center">
-                <p className="text-red-600 mb-4">Error loading PDF</p>
-                <p className="text-sm text-stone-600">{error.message}</p>
-              </div>
-            ) : (
-              <Document
-                file={pdfUrl}
-                onLoadSuccess={onDocumentLoadSuccess}
-                onLoadError={onDocumentLoadError}
-                loading={
-                  <div className="flex items-center justify-center p-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
-                  </div>
-                }
-              >
-                <Page
-                  pageNumber={currentPage}
-                  scale={scale}
-                  rotate={rotation}
-                  loading={
-                    <div className="flex items-center justify-center p-8">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
-                    </div>
-                  }
-                />
-              </Document>
-            )}
-          </div>
-        </div>
-        
-        {/* Reading Progress Indicator */}
-        <div className="fixed bottom-4 right-4 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 shadow-lg border border-stone-200">
-          <div className="text-xs text-stone-600 mb-1">Reading Progress</div>
-          <div className="flex items-center gap-2">
-            <div className="w-20 bg-stone-200 rounded-full h-1">
+      {/* Progress Section */}
+      <div className="bg-stone-50 border-b border-stone-200 px-3 py-2">
+        <div className="space-y-2">
+          <div>
+            <div className="flex items-center justify-between text-xs text-stone-600 mb-1">
+              <span>Reading Progress</span>
+              <span>{Math.round(readingProgress)}% ({pagesRead.size}/{totalPages} pages)</span>
+            </div>
+            <div className="w-full bg-stone-200 rounded-full h-1.5">
               <div 
-                className="bg-emerald-600 h-1 rounded-full transition-all"
+                className="bg-emerald-600 h-1.5 rounded-full transition-all duration-300"
+                style={{ width: `${readingProgress}%` }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between text-xs text-stone-600 mb-1">
+              <span>Page Progress</span>
+              <span>{Math.round(scrollProgress)}%</span>
+            </div>
+            <div className="w-full bg-stone-200 rounded-full h-1">
+              <div 
+                className="bg-blue-500 h-1 rounded-full transition-all duration-150"
                 style={{ width: `${scrollProgress}%` }}
               />
             </div>
-            <span className="text-xs text-stone-500">{Math.round(scrollProgress)}%</span>
+          </div>
+
+          <div className="flex items-center justify-between text-xs text-stone-500">
+            <span>Time on page: {formatTime(timeSpentOnPage)}</span>
+            <span>Total time: {formatTime(totalReadingTime)}</span>
+          </div>
+        </div>
+      </div>
+      
+      {/* PDF Viewer */}
+      <div
+        ref={scrollContainerRef}
+        className="bg-stone-100 overflow-auto"
+        style={{ height: isFullscreen ? 'calc(100vh - 120px)' : '600px' }}
+      >
+        <div className="flex justify-center p-4">
+          <div className="bg-white shadow-lg">
+            <canvas ref={canvasRef} className="max-w-full h-auto" />
+            {pageRendering && (
+              <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -558,8 +610,7 @@ export const ReadBook = () => {
       console.log(`Text extraction ${data.cached ? 'retrieved from cache' : 'completed'}:`, {
         textLength: data.text.length,
         pageCount: data.pageCount,
-        cached: data.cached,
-        text: data.text
+        cached: data.cached
       });
 
       return data.text;
