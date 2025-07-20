@@ -132,12 +132,12 @@ const EnhancedPdfViewer = ({
     const scrollPercentage = maxScroll > 0 
       ? Math.min(100, (scrollTop / maxScroll) * 100) 
       : 100;
-    onScrollProgress?.(scrollPercentage); // Correctly passing scroll progress
+    onScrollProgress?.(scrollPercentage);
   };
 
   scrollContainer.addEventListener('scroll', handleScroll);
   return () => scrollContainer.removeEventListener('scroll', handleScroll);
-}, []);
+}, [onScrollProgress]);
 
   const handlePrevPage = () => currentPage > 1 && onPageChange(currentPage - 1);
   const handleNextPage = () => currentPage < totalPages && onPageChange(currentPage + 1);

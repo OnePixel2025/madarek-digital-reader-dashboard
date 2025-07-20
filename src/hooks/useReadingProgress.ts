@@ -120,44 +120,28 @@ export const useReadingProgress = ({ bookId, totalPages }: UseReadingProgressPro
   const updatePage = useCallback((page: number) => {
     setCurrentPage(page);
     
-    // Calculate progress percentage based on page and scroll position
+    // Calculate progress percentage based on page
     let progressPercentage = 0;
     if (totalPages) {
-      const pageProgress = (page - 1) / totalPages;
-      
-      // Add scroll progress within the current page
-      if (progressData) {
-        const scrollProgress = progressData.scrollPosition / Math.max(progressData.contentHeight - progressData.viewportHeight, 1);
-        const pageScrollContribution = scrollProgress / totalPages;
-        progressPercentage = (pageProgress + pageScrollContribution) * 100;
-      } else {
-        progressPercentage = pageProgress * 100;
-      }
+      progressPercentage = (page / totalPages) * 100;
     }
 
-    // Debounce the progress update
-    const timeoutId = setTimeout(() => {
-      updateProgressMutation.mutate({
-        currentPage: page,
-        progressPercentage: Math.min(100, Math.max(0, progressPercentage)),
-        readingTimeSeconds: readingTime
-      });
-    }, 1000);
+    // Update progress immediately without debouncing for page changes
+    updateProgressMutation.mutate({
+      currentPage: page,
+      progressPercentage: Math.min(100, Math.max(0, progressPercentage)),
+      readingTimeSeconds: readingTime
+    });
+  }, [totalPages, readingTime, updateProgressMutation]);
 
-    return () => clearTimeout(timeoutId);
-  }, [totalPages, progressData, readingTime, updateProgressMutation]);
+  const updateScrollProgress = useCallback((scrollPercentage: number) => {
+    // For single-page PDF viewer, use scroll percentage to update progress within current page
+    if (totalPages) {
+      const basePageProgress = ((currentPage - 1) / totalPages) * 100;
+      const scrollContribution = (scrollPercentage / 100) * (100 / totalPages);
+      const progressPercentage = basePageProgress + scrollContribution;
 
-  const updateScrollProgress = useCallback((data: ReadingProgressData) => {
-    setProgressData(data);
-    
-    // Update progress based on scroll position
-    if (totalPages && data.contentHeight > 0) {
-      const pageProgress = (currentPage - 1) / totalPages;
-      const scrollProgress = data.scrollPosition / Math.max(data.contentHeight - data.viewportHeight, 1);
-      const pageScrollContribution = scrollProgress / totalPages;
-      const progressPercentage = (pageProgress + pageScrollContribution) * 100;
-
-      // Debounced update
+      // Debounced update for scroll progress
       const timeoutId = setTimeout(() => {
         updateProgressMutation.mutate({
           currentPage,
