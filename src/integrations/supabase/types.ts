@@ -71,6 +71,8 @@ export type Database = {
           extracted_text: string
           extraction_method: string | null
           id: string
+          needs_ocr: boolean | null
+          ocr_status: string | null
           page_count: number | null
           updated_at: string
         }
@@ -80,6 +82,8 @@ export type Database = {
           extracted_text: string
           extraction_method?: string | null
           id?: string
+          needs_ocr?: boolean | null
+          ocr_status?: string | null
           page_count?: number | null
           updated_at?: string
         }
@@ -89,6 +93,8 @@ export type Database = {
           extracted_text?: string
           extraction_method?: string | null
           id?: string
+          needs_ocr?: boolean | null
+          ocr_status?: string | null
           page_count?: number | null
           updated_at?: string
         }
