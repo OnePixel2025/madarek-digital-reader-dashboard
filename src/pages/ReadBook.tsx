@@ -33,6 +33,7 @@ const EnhancedPdfViewer = ({
   currentPage, 
   onPageChange, 
   totalPages, 
+  onScrollProgress,
   className = "" 
 }) => {
   const containerRef = useRef(null);
@@ -120,6 +121,25 @@ const EnhancedPdfViewer = ({
 
     renderPage();
   }, [pdfDoc, currentPage, scale, rotation]);
+
+  // In EnhancedPdfViewer component
+useEffect(() => {
+  const scrollContainer = scrollContainerRef.current;
+  if (!scrollContainer) return;
+
+  const handleScroll = () => {
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+    const maxScroll = scrollHeight - clientHeight;
+    const scrollPercentage = maxScroll > 0 
+      ? Math.min(100, (scrollTop / maxScroll) * 100) 
+      : 100;
+    setScrollProgress(scrollPercentage);
+    onScrollProgress?.(scrollPercentage); // Pass this up to parent
+  };
+
+  scrollContainer.addEventListener('scroll', handleScroll);
+  return () => scrollContainer.removeEventListener('scroll', handleScroll);
+}, []);
 
   const handlePrevPage = () => currentPage > 1 && onPageChange(currentPage - 1);
   const handleNextPage = () => currentPage < totalPages && onPageChange(currentPage + 1);
@@ -608,6 +628,22 @@ export const ReadBook = () => {
     };
   }, [ttsAudio]);
 
+  const calculateOverallProgress = () => {
+  if (!selectedBook?.page_count) return 0;
+  
+  // Calculate progress from pages read
+  const pageProgress = ((currentPage - 1) / selectedBook.page_count) * 100;
+  
+  // Get scroll progress from the PDF viewer (0-100)
+  const currentPageScrollProgress = scrollProgress; 
+  
+  // Calculate weighted progress (current page contributes 1/page_count to total progress)
+  const currentPageWeight = (1 / selectedBook.page_count) * 100;
+  const currentPageContribution = (currentPageScrollProgress / 100) * currentPageWeight;
+  
+  return pageProgress + currentPageContribution;
+};
+
   if (booksLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -687,12 +723,13 @@ export const ReadBook = () => {
             ) : pdfUrl ? (
               <div className="w-full">
                 <EnhancedPdfViewer
-                  pdfUrl={pdfUrl}
-                  currentPage={currentPage}
-                  totalPages={selectedBook?.page_count || 1}
-                  onPageChange={updatePage}
-                  className="w-full"
-                />
+  pdfUrl={pdfUrl}
+  currentPage={currentPage}
+  totalPages={selectedBook?.page_count || 1}
+  onPageChange={updatePage}
+  onScrollProgress={setScrollProgress}
+  className="w-full"
+/>
               </div>
             ) : (
               <div className="flex items-center justify-center p-8 border-2 border-dashed border-stone-200 rounded-lg w-full h-96">
@@ -891,15 +928,18 @@ export const ReadBook = () => {
             
             <div className="space-y-4">
               {/* Progress Bar */}
-              {bookProgress && selectedBook?.page_count && (
-                <div className="space-y-2">
-                  <Progress value={bookProgress.progress_percentage} className="w-full" />
-                  <div className="flex justify-between text-xs text-stone-500">
-                    <span>{Math.round(bookProgress.progress_percentage)}% complete</span>
-                    <span>Page {currentPage} of {selectedBook.page_count}</span>
-                  </div>
-                </div>
-              )}
+              {selectedBook?.page_count && (
+  <div className="space-y-2">
+    <Progress 
+      value={calculateOverallProgress()} 
+      className="w-full" 
+    />
+    <div className="flex justify-between text-xs text-stone-500">
+      <span>{Math.round(calculateOverallProgress())}% complete</span>
+      <span>Page {currentPage} of {selectedBook.page_count}</span>
+    </div>
+  </div>
+)}
               
               <div className="text-sm text-stone-600">
                 {selectedBook && (
