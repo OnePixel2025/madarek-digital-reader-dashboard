@@ -12,6 +12,13 @@ import { toast } from '@/hooks/use-toast';
 import { BookmarksPanel } from '@/components/pdf/BookmarksPanel';
 import { useReadingProgress } from '@/hooks/useReadingProgress';
 
+// Extend Window interface for PDF.js
+declare global {
+  interface Window {
+    pdfjsLib?: any;
+  }
+}
+
 interface Book {
   id: string;
   title: string;
@@ -768,17 +775,18 @@ export const ReadBook = () => {
                   {ttsAudio && (
                     <div className="space-y-2 p-3 bg-stone-50 rounded-lg">
                       {/* Progress Bar */}
-                      <div className="space-y-1">
-                        <div className="flex justify-between text-xs text-stone-500">
-                          <span>{formatTime(currentTime)}</span>
-                          <span>{formatTime(duration)}</span>
-                                                </div>
-                      <div className="w-full bg-stone-200 rounded-full h-1">
-                        <div 
-                          className="bg-emerald-600 h-1 rounded-full transition-all"
-                          style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
-                        />
-                      </div>
+                       <div className="space-y-1">
+                         <div className="flex justify-between text-xs text-stone-500">
+                           <span>{formatTime(currentTime)}</span>
+                           <span>{formatTime(duration)}</span>
+                         </div>
+                         <div className="w-full bg-stone-200 rounded-full h-1">
+                           <div 
+                             className="bg-emerald-600 h-1 rounded-full transition-all"
+                             style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
+                           />
+                         </div>
+                       </div>
                       
                       {/* Volume Control */}
                       <div className="flex items-center gap-2">
