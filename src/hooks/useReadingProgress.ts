@@ -22,10 +22,37 @@ export const useReadingProgress = ({ bookId, totalPages }: UseReadingProgressPro
   const [sessionStart, setSessionStart] = useState<Date | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [progressData, setProgressData] = useState<ReadingProgressData | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
 
-  // Start reading session
+  // Load existing progress on mount
   useEffect(() => {
-    if (bookId && user?.id) {
+    const loadProgress = async () => {
+      if (!bookId || !user?.id || isLoaded) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from('book_progress')
+          .select('current_page, progress_percentage')
+          .eq('book_id', bookId)
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (!error && data) {
+          setCurrentPage(data.current_page || 1);
+        }
+        setIsLoaded(true);
+      } catch (error) {
+        console.error('Failed to load reading progress:', error);
+        setIsLoaded(true);
+      }
+    };
+
+    loadProgress();
+  }, [bookId, user?.id, isLoaded]);
+
+  // Start reading session after progress is loaded
+  useEffect(() => {
+    if (bookId && user?.id && isLoaded) {
       setSessionStart(new Date());
       
       // Start timer for reading time
@@ -35,7 +62,7 @@ export const useReadingProgress = ({ bookId, totalPages }: UseReadingProgressPro
 
       return () => clearInterval(interval);
     }
-  }, [bookId, user?.id]);
+  }, [bookId, user?.id, isLoaded]);
 
   // Update book progress mutation
   const updateProgressMutation = useMutation({

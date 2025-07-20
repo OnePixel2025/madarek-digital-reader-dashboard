@@ -271,6 +271,11 @@ export const ReadBook = () => {
   const [duration, setDuration] = useState(0);
   const [selectedVoice, setSelectedVoice] = useState('Aria');
   const audioRef = useRef(null);
+  
+  // Exam states
+  const [examData, setExamData] = useState(null);
+  const [examLoading, setExamLoading] = useState(false);
+  const [showExamDialog, setShowExamDialog] = useState(false);
 
   // Reading progress tracking states for sidebar
   const [readingProgress, setReadingProgress] = useState(0);
@@ -485,6 +490,47 @@ export const ReadBook = () => {
   const handleViewSummary = () => {
     if (bookSummary) {
       setShowSummaryDialog(true);
+    }
+  };
+
+  const handleGenerateExam = async () => {
+    if (!selectedBookId) {
+      toast({
+        title: "No book selected",
+        description: "Please select a book to generate an exam.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setExamLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-book-exam', {
+        body: { bookId: selectedBookId }
+      });
+
+      if (error) throw error;
+
+      if (data.success) {
+        setExamData(data.exam);
+        setShowExamDialog(true);
+        
+        toast({
+          title: "Exam generated successfully",
+          description: "Your personalized exam is ready!",
+        });
+      } else {
+        throw new Error(data.error || 'Failed to generate exam');
+      }
+    } catch (error) {
+      console.error('Error generating exam:', error);
+      toast({
+        title: "Error generating exam",
+        description: error instanceof Error ? error.message : "Failed to generate exam. Please ensure the book text has been extracted.",
+        variant: "destructive",
+      });
+    } finally {
+      setExamLoading(false);
     }
   };
 
@@ -909,6 +955,16 @@ export const ReadBook = () => {
                 <MessageCircle className="w-4 h-4 mr-2" />
                 Chat about Book
               </Button>
+
+              <Button 
+                variant="outline" 
+                className="w-full justify-start"
+                onClick={handleGenerateExam}
+                disabled={!selectedBookId || examLoading}
+              >
+                <Brain className="w-4 h-4 mr-2" />
+                {examLoading ? "Creating Exam..." : "Exam about the book"}
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -993,6 +1049,99 @@ export const ReadBook = () => {
               <div className="whitespace-pre-wrap text-sm text-stone-700 leading-relaxed">
                 {bookSummary}
               </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Exam Dialog */}
+      <Dialog open={showExamDialog} onOpenChange={setShowExamDialog}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{examData?.title || 'Book Exam'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6">
+            {examData?.instructions && (
+              <div className="p-4 bg-blue-50 rounded-lg">
+                <p className="text-blue-800 text-sm">{examData.instructions}</p>
+              </div>
+            )}
+            
+            {examData?.multipleChoice && examData.multipleChoice.length > 0 && (
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Multiple Choice Questions</h3>
+                <div className="space-y-4">
+                  {examData.multipleChoice.map((question, index) => (
+                    <div key={index} className="p-4 border border-stone-200 rounded-lg">
+                      <p className="font-medium mb-3">{index + 1}. {question.question}</p>
+                      <div className="space-y-2">
+                        {question.options?.map((option, optionIndex) => (
+                          <div key={optionIndex} className="flex items-center space-x-2">
+                            <input
+                              type="radio"
+                              name={`question-${index}`}
+                              id={`q${index}-option${optionIndex}`}
+                              className="text-emerald-600"
+                            />
+                            <label htmlFor={`q${index}-option${optionIndex}`} className="text-sm">
+                              {option}
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {examData?.essayQuestions && examData.essayQuestions.length > 0 && (
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Essay Questions</h3>
+                <div className="space-y-4">
+                  {examData.essayQuestions.map((question, index) => (
+                    <div key={index} className="p-4 border border-stone-200 rounded-lg">
+                      <p className="font-medium mb-2">
+                        {index + 1}. {question.question}
+                      </p>
+                      {question.points && (
+                        <p className="text-sm text-stone-600 mb-2">
+                          Points: {question.points}
+                        </p>
+                      )}
+                      {question.suggestedLength && (
+                        <p className="text-sm text-stone-600 mb-3">
+                          Suggested length: {question.suggestedLength}
+                        </p>
+                      )}
+                      <textarea
+                        className="w-full h-32 p-3 border border-stone-200 rounded-lg resize-vertical"
+                        placeholder="Write your answer here..."
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {examData?.rawContent && (
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Exam Content</h3>
+                <div className="p-4 bg-stone-50 rounded-lg">
+                  <div className="whitespace-pre-wrap text-stone-700 text-sm">
+                    {examData.rawContent}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-4 border-t">
+              <Button variant="outline" onClick={() => setShowExamDialog(false)}>
+                Close
+              </Button>
+              <Button className="bg-emerald-600 hover:bg-emerald-700">
+                Submit Exam
+              </Button>
             </div>
           </div>
         </DialogContent>
