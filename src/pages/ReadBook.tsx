@@ -16,6 +16,7 @@ import { useReadingProgress } from '@/hooks/useReadingProgress';
 declare global {
   interface Window {
     pdfjsLib?: any;
+    Tesseract?: any;
   }
 }
 
@@ -25,210 +26,8 @@ interface Book {
   author: string | null;
   file_path: string | null;
   page_count: number | null;
+  language?: string;
 }
-
-/**
- * Extract text from PDF using OCR (Optical Character Recognition)
- * Requires PDF.js and Tesseract.js to be loaded
- * 
- * @param {string} pdfUrl - URL of the PDF file
- * @param {Object} options - Configuration options
- * @param {string} options.language - OCR language code (default: 'eng')
- * @param {number} options.pageLimit - Maximum pages to process (default: null for all pages)
- * @param {number} options.quality - Image quality scale (1-4, default: 2)
- * @param {Function} options.onProgress - Progress callback function
- * @param {Function} options.onStatusUpdate - Status update callback function
- * @returns {Promise<string>} Extracted text from all processed pages
- */
-async function extractTextFromPDFWithOCR(pdfUrl, options = {}) {
-  const {
-    language = 'eng',
-    pageLimit = null,
-    quality = 2,
-    onProgress = null,
-    onStatusUpdate = null
-  } = options;
-
-  // Validate required libraries
-  if (!window.pdfjsLib) {
-    throw new Error('PDF.js library not loaded. Please include: https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
-  }
-  
-  if (!window.Tesseract) {
-    throw new Error('Tesseract.js library not loaded. Please include: https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js');
-  }
-
-  // Validate PDF URL
-  if (!pdfUrl || typeof pdfUrl !== 'string') {
-    throw new Error('Valid PDF URL is required');
-  }
-
-  let worker = null;
-  
-  try {
-    // Update status
-    onStatusUpdate?.('Initializing OCR engine...');
-    
-    // Initialize Tesseract worker
-    worker = await window.Tesseract.createWorker();
-    await worker.loadLanguage(language);
-    await worker.initialize(language);
-    
-    onStatusUpdate?.('Loading PDF document...');
-    
-    // Load PDF document
-    const pdf = await window.pdfjsLib.getDocument(pdfUrl).promise;
-    const totalPagesInPDF = pdf.numPages;
-    const numPages = pageLimit ? Math.min(pageLimit, totalPagesInPDF) : totalPagesInPDF;
-    
-    onStatusUpdate?.(`Processing ${numPages} pages...`);
-    
-    let extractedText = "";
-    let processedPages = 0;
-    
-    // Process each page
-    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-      onStatusUpdate?.(`Processing page ${pageNum}/${numPages}`);
-      
-      try {
-        // Get PDF page
-        const page = await pdf.getPage(pageNum);
-        const viewport = page.getViewport({ scale: quality });
-        
-        // Create canvas for rendering
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
-        
-        // Render PDF page to canvas
-        await page.render({
-          canvasContext: context,
-          viewport: viewport,
-        }).promise;
-        
-        // Convert canvas to image data URL
-        const imageDataUrl = canvas.toDataURL('image/png');
-        
-        // Perform OCR on the image
-        const { data: { text } } = await worker.recognize(imageDataUrl);
-        
-        // Add page text to result with separator
-        if (text.trim()) {
-          extractedText += `\n--- Page ${pageNum} ---\n${text.trim()}\n`;
-        }
-        
-        // Clean up canvas
-        canvas.remove();
-        
-      } catch (pageError) {
-        console.warn(`Failed to process page ${pageNum}:`, pageError);
-        extractedText += `\n--- Page ${pageNum} (Error) ---\nFailed to extract text from this page\n`;
-      }
-      
-      // Update progress
-      processedPages++;
-      const progress = (processedPages / numPages) * 100;
-      onProgress?.(progress);
-    }
-    
-    // Clean up worker
-    await worker.terminate();
-    worker = null;
-    
-    onStatusUpdate?.('Text extraction completed!');
-    
-    // Return cleaned up text
-    return extractedText.trim();
-    
-  } catch (error) {
-    // Clean up worker on error
-    if (worker) {
-      try {
-        await worker.terminate();
-      } catch (cleanupError) {
-        console.warn('Failed to cleanup worker:', cleanupError);
-      }
-    }
-    
-    onStatusUpdate?.(`Error: ${error.message}`);
-    throw new Error(`OCR extraction failed: ${error.message}`);
-  }
-}
-
-/**
- * Load required libraries for OCR text extraction
- * Call this before using extractTextFromPDFWithOCR
- * 
- * @returns {Promise<void>}
- */
-async function loadOCRLibraries() {
-  return new Promise((resolve, reject) => {
-    let scriptsLoaded = 0;
-    const totalScripts = 2;
-    
-    const checkComplete = () => {
-      scriptsLoaded++;
-      if (scriptsLoaded === totalScripts) {
-        // Set PDF.js worker
-        if (window.pdfjsLib) {
-          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 
-            'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-        }
-        resolve();
-      }
-    };
-    
-    // Load PDF.js if not already loaded
-    if (!window.pdfjsLib) {
-      const pdfScript = document.createElement('script');
-      pdfScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-      pdfScript.onload = checkComplete;
-      pdfScript.onerror = () => reject(new Error('Failed to load PDF.js'));
-      document.head.appendChild(pdfScript);
-    } else {
-      checkComplete();
-    }
-    
-    // Load Tesseract.js if not already loaded
-    if (!window.Tesseract) {
-      const tesseractScript = document.createElement('script');
-      tesseractScript.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js';
-      tesseractScript.onload = checkComplete;
-      tesseractScript.onerror = () => reject(new Error('Failed to load Tesseract.js'));
-      document.head.appendChild(tesseractScript);
-    } else {
-      checkComplete();
-    }
-  });
-}
-
-// Example usage:
-/*
-// First, load the required libraries
-await loadOCRLibraries();
-
-// Then extract text with progress tracking
-const extractedText = await extractTextFromPDFWithOCR(
-  'https://example.com/document.pdf',
-  {
-    language: 'eng',           // OCR language
-    pageLimit: 10,             // Process only first 10 pages
-    quality: 2,                // Medium quality (1-4)
-    onProgress: (progress) => {
-      console.log(`Progress: ${progress.toFixed(1)}%`);
-    },
-    onStatusUpdate: (status) => {
-      console.log(`Status: ${status}`);
-    }
-  }
-);
-
-console.log('Extracted text:', extractedText);
-*/
-
-// Export for module usage (if using modules)
-// export { extractTextFromPDFWithOCR, loadOCRLibraries };
 
 // Enhanced PDF Viewer Component with simplified controls (no built-in progress)
 const EnhancedPdfViewer = ({ 
@@ -474,6 +273,13 @@ export const ReadBook = () => {
   const [duration, setDuration] = useState(0);
   const [selectedVoice, setSelectedVoice] = useState('Aria');
   const audioRef = useRef(null);
+
+  
+  const [extractedText, setExtractedText] = useState<string | null>(null);
+  const [isExtractingText, setIsExtractingText] = useState(false);
+  const [extractionProgress, setExtractionProgress] = useState(0);
+  const [extractionStatus, setExtractionStatus] = useState('');
+  const [showExtractedTextDialog, setShowExtractedTextDialog] = useState(false);
   
   // Exam states
   const [examData, setExamData] = useState(null);
@@ -487,31 +293,6 @@ export const ReadBook = () => {
   const [totalReadingTime, setTotalReadingTime] = useState(0);
   const [pagesRead, setPagesRead] = useState(new Set());
   const timeIntervalRef = useRef(null);
-
-  const test = async () => {
-    // First, load the required libraries
-await loadOCRLibraries();
-
-// Then extract text with progress tracking
-const extractedText = await extractTextFromPDFWithOCR(
-  'https://ripsrvyzgvyvfisvcnwk.supabase.co/storage/v1/object/public/books//1751119925694-book_1751119925694.pdf',
-  {
-    language: 'ara',           // OCR language
-    pageLimit: 10,             // Process only first 10 pages
-    quality: 2,                // Medium quality (1-4)
-    onProgress: (progress) => {
-      console.log(`Progress: ${progress.toFixed(1)}%`);
-    },
-    onStatusUpdate: (status) => {
-      console.log(`Status: ${status}`);
-    }
-  }
-);
-
-console.log('Extracted text:', extractedText);
-  }
-
-  test()
 
   // Load summary from localStorage when book changes
   useEffect(() => {
@@ -900,6 +681,188 @@ console.log('Extracted text:', extractedText);
     };
   }, [ttsAudio]);
 
+  /**
+   * Load required OCR libraries (PDF.js and Tesseract.js)
+   */
+  const loadOCRLibraries = async () => {
+    return new Promise<void>((resolve, reject) => {
+      // Check if libraries are already loaded
+      if (window.pdfjsLib && window.Tesseract) {
+        // Set PDF.js worker if needed
+        if (!window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 
+            'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        }
+        resolve();
+        return;
+      }
+
+      let scriptsLoaded = 0;
+      const totalScripts = 2;
+      
+      const checkComplete = () => {
+        scriptsLoaded++;
+        if (scriptsLoaded === totalScripts) {
+          // Set PDF.js worker
+          if (window.pdfjsLib) {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 
+              'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          }
+          resolve();
+        }
+      };
+      
+      // Load PDF.js
+      const pdfScript = document.createElement('script');
+      pdfScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      pdfScript.onload = checkComplete;
+      pdfScript.onerror = () => reject(new Error('Failed to load PDF.js'));
+      document.head.appendChild(pdfScript);
+      
+      // Load Tesseract.js
+      const tesseractScript = document.createElement('script');
+      tesseractScript.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js';
+      tesseractScript.onload = checkComplete;
+      tesseractScript.onerror = () => reject(new Error('Failed to load Tesseract.js'));
+      document.head.appendChild(tesseractScript);
+    });
+  };
+
+  /**
+   * Extract text from PDF using OCR
+   */
+  const extractTextFromPDF = async () => {
+    if (!pdfUrl) {
+      toast({
+        title: "No PDF loaded",
+        description: "Please load a PDF first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsExtractingText(true);
+    setExtractionProgress(0);
+    setExtractionStatus('Initializing...');
+    setExtractedText(null);
+
+    try {
+      // Load required libraries
+      setExtractionStatus('Loading OCR libraries...');
+      await loadOCRLibraries();
+
+      // Get language from selected book or default to English
+      const language = selectedBook?.language == "Arabic" ? "ara" : 'eng';
+
+      // Extract text
+      setExtractionStatus('Starting text extraction...');
+      
+      let extractedText = "";
+      let worker = null;
+      
+      try {
+        // Initialize Tesseract worker
+        setExtractionStatus('Initializing OCR engine...');
+        worker = await window.Tesseract.createWorker();
+        await worker.loadLanguage(language);
+        await worker.initialize(language);
+        
+        setExtractionStatus('Loading PDF document...');
+        
+        // Load PDF document
+        const pdf = await window.pdfjsLib.getDocument(pdfUrl).promise;
+        const totalPages = pdf.numPages;
+        const pageLimit = Math.min(10, totalPages); // Limit to first 10 pages for demo
+        
+        setExtractionStatus(`Processing ${pageLimit} pages...`);
+        
+        let processedPages = 0;
+        
+        // Process each page
+        for (let pageNum = 1; pageNum <= pageLimit; pageNum++) {
+          setExtractionStatus(`Processing page ${pageNum}/${pageLimit}`);
+          
+          try {
+            // Get PDF page
+            const page = await pdf.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 2 }); // Medium quality
+            
+            // Create canvas for rendering
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            
+            // Render PDF page to canvas
+            await page.render({
+              canvasContext: context,
+              viewport: viewport,
+            }).promise;
+            
+            // Perform OCR on the canvas
+            const { data: { text } } = await worker.recognize(canvas);
+            
+            // Add page text to result with separator
+            if (text.trim()) {
+              extractedText += `\n--- Page ${pageNum} ---\n${text.trim()}\n`;
+            }
+            
+            // Clean up canvas
+            canvas.remove();
+            
+          } catch (pageError) {
+            console.warn(`Failed to process page ${pageNum}:`, pageError);
+            extractedText += `\n--- Page ${pageNum} (Error) ---\nFailed to extract text from this page\n`;
+          }
+          
+          // Update progress
+          processedPages++;
+          const progress = (processedPages / pageLimit) * 100;
+          setExtractionProgress(progress);
+        }
+        
+        // Clean up worker
+        await worker.terminate();
+        worker = null;
+        
+        setExtractedText(extractedText.trim());
+        setExtractionStatus('Text extraction completed!');
+        setShowExtractedTextDialog(true);
+        
+        toast({
+          title: "Text extracted successfully",
+          description: `Extracted text from ${pageLimit} pages (${extractedText.length} characters)`,
+        });
+
+        // Log the extracted text
+        console.log('Extracted text:', extractedText);
+        console.log('Text language:', language);
+
+      } catch (error) {
+        // Clean up worker on error
+        if (worker) {
+          try {
+            await worker.terminate();
+          } catch (cleanupError) {
+            console.warn('Failed to cleanup worker:', cleanupError);
+          }
+        }
+        throw error;
+      }
+      
+    } catch (error) {
+      console.error('Text extraction error:', error);
+      toast({
+        title: "Extraction failed",
+        description: error instanceof Error ? error.message : "Failed to extract text",
+        variant: "destructive",
+      });
+      setExtractionStatus(`Error: ${error.message}`);
+    } finally {
+      setIsExtractingText(false);
+    }
+  };
+
   const calculateOverallProgress = () => {
   if (!selectedBook?.page_count) return 0;
   
@@ -1153,6 +1116,24 @@ console.log('Extracted text:', extractedText);
             </h3>
             
             <div className="space-y-3">
+              <Button 
+                variant="outline" 
+                className="w-full justify-start"
+                onClick={extractTextFromPDF}
+                disabled={isExtractingText || !pdfUrl}
+              >
+                {isExtractingText ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Extracting ({extractionProgress}%)...
+                  </>
+                ) : (
+                  <>
+                    <TextSelect className="w-4 h-4 mr-2" />
+                    Extract Text from PDF
+                  </>
+                )}
+              </Button>
               {bookSummary ? (
                 <Button 
                   variant="outline" 
@@ -1371,6 +1352,63 @@ console.log('Extracted text:', extractedText);
                 Submit Exam
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showExtractedTextDialog} onOpenChange={setShowExtractedTextDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <TextSelect className="w-5 h-5" />
+              Extracted Text from PDF
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            {extractionStatus && (
+              <div className="text-sm text-stone-500 mb-2">
+                Status: {extractionStatus}
+              </div>
+            )}
+
+            {extractedText ? (
+              <div className="space-y-4">
+                <div className="p-4 bg-stone-50 rounded-lg border border-stone-200">
+                  <div className="whitespace-pre-wrap text-sm font-mono max-h-[60vh] overflow-y-auto">
+                    {extractedText}
+                  </div>
+                </div>
+                
+                <div className="flex justify-between items-center">
+                  <div className="text-sm text-stone-500">
+                    Language: {selectedBook?.language || 'eng'} | 
+                    Characters: {extractedText.length}
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline" 
+                      onClick={() => {
+                        if (extractedText) {
+                          navigator.clipboard.writeText(extractedText);
+                          toast({
+                            title: "Copied to clipboard",
+                            description: "The extracted text has been copied to your clipboard",
+                          });
+                        }
+                      }}
+                    >
+                      Copy Text
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-32">
+                <p className="text-stone-500">No text extracted yet</p>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
