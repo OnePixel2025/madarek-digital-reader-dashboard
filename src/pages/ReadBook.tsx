@@ -27,6 +27,209 @@ interface Book {
   page_count: number | null;
 }
 
+/**
+ * Extract text from PDF using OCR (Optical Character Recognition)
+ * Requires PDF.js and Tesseract.js to be loaded
+ * 
+ * @param {string} pdfUrl - URL of the PDF file
+ * @param {Object} options - Configuration options
+ * @param {string} options.language - OCR language code (default: 'eng')
+ * @param {number} options.pageLimit - Maximum pages to process (default: null for all pages)
+ * @param {number} options.quality - Image quality scale (1-4, default: 2)
+ * @param {Function} options.onProgress - Progress callback function
+ * @param {Function} options.onStatusUpdate - Status update callback function
+ * @returns {Promise<string>} Extracted text from all processed pages
+ */
+async function extractTextFromPDFWithOCR(pdfUrl, options = {}) {
+  const {
+    language = 'eng',
+    pageLimit = null,
+    quality = 2,
+    onProgress = null,
+    onStatusUpdate = null
+  } = options;
+
+  // Validate required libraries
+  if (!window.pdfjsLib) {
+    throw new Error('PDF.js library not loaded. Please include: https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+  }
+  
+  if (!window.Tesseract) {
+    throw new Error('Tesseract.js library not loaded. Please include: https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js');
+  }
+
+  // Validate PDF URL
+  if (!pdfUrl || typeof pdfUrl !== 'string') {
+    throw new Error('Valid PDF URL is required');
+  }
+
+  let worker = null;
+  
+  try {
+    // Update status
+    onStatusUpdate?.('Initializing OCR engine...');
+    
+    // Initialize Tesseract worker
+    worker = await window.Tesseract.createWorker();
+    await worker.loadLanguage(language);
+    await worker.initialize(language);
+    
+    onStatusUpdate?.('Loading PDF document...');
+    
+    // Load PDF document
+    const pdf = await window.pdfjsLib.getDocument(pdfUrl).promise;
+    const totalPagesInPDF = pdf.numPages;
+    const numPages = pageLimit ? Math.min(pageLimit, totalPagesInPDF) : totalPagesInPDF;
+    
+    onStatusUpdate?.(`Processing ${numPages} pages...`);
+    
+    let extractedText = "";
+    let processedPages = 0;
+    
+    // Process each page
+    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+      onStatusUpdate?.(`Processing page ${pageNum}/${numPages}`);
+      
+      try {
+        // Get PDF page
+        const page = await pdf.getPage(pageNum);
+        const viewport = page.getViewport({ scale: quality });
+        
+        // Create canvas for rendering
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+        
+        // Render PDF page to canvas
+        await page.render({
+          canvasContext: context,
+          viewport: viewport,
+        }).promise;
+        
+        // Convert canvas to image data URL
+        const imageDataUrl = canvas.toDataURL('image/png');
+        
+        // Perform OCR on the image
+        const { data: { text } } = await worker.recognize(imageDataUrl);
+        
+        // Add page text to result with separator
+        if (text.trim()) {
+          extractedText += `\n--- Page ${pageNum} ---\n${text.trim()}\n`;
+        }
+        
+        // Clean up canvas
+        canvas.remove();
+        
+      } catch (pageError) {
+        console.warn(`Failed to process page ${pageNum}:`, pageError);
+        extractedText += `\n--- Page ${pageNum} (Error) ---\nFailed to extract text from this page\n`;
+      }
+      
+      // Update progress
+      processedPages++;
+      const progress = (processedPages / numPages) * 100;
+      onProgress?.(progress);
+    }
+    
+    // Clean up worker
+    await worker.terminate();
+    worker = null;
+    
+    onStatusUpdate?.('Text extraction completed!');
+    
+    // Return cleaned up text
+    return extractedText.trim();
+    
+  } catch (error) {
+    // Clean up worker on error
+    if (worker) {
+      try {
+        await worker.terminate();
+      } catch (cleanupError) {
+        console.warn('Failed to cleanup worker:', cleanupError);
+      }
+    }
+    
+    onStatusUpdate?.(`Error: ${error.message}`);
+    throw new Error(`OCR extraction failed: ${error.message}`);
+  }
+}
+
+/**
+ * Load required libraries for OCR text extraction
+ * Call this before using extractTextFromPDFWithOCR
+ * 
+ * @returns {Promise<void>}
+ */
+async function loadOCRLibraries() {
+  return new Promise((resolve, reject) => {
+    let scriptsLoaded = 0;
+    const totalScripts = 2;
+    
+    const checkComplete = () => {
+      scriptsLoaded++;
+      if (scriptsLoaded === totalScripts) {
+        // Set PDF.js worker
+        if (window.pdfjsLib) {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 
+            'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        }
+        resolve();
+      }
+    };
+    
+    // Load PDF.js if not already loaded
+    if (!window.pdfjsLib) {
+      const pdfScript = document.createElement('script');
+      pdfScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      pdfScript.onload = checkComplete;
+      pdfScript.onerror = () => reject(new Error('Failed to load PDF.js'));
+      document.head.appendChild(pdfScript);
+    } else {
+      checkComplete();
+    }
+    
+    // Load Tesseract.js if not already loaded
+    if (!window.Tesseract) {
+      const tesseractScript = document.createElement('script');
+      tesseractScript.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js';
+      tesseractScript.onload = checkComplete;
+      tesseractScript.onerror = () => reject(new Error('Failed to load Tesseract.js'));
+      document.head.appendChild(tesseractScript);
+    } else {
+      checkComplete();
+    }
+  });
+}
+
+// Example usage:
+/*
+// First, load the required libraries
+await loadOCRLibraries();
+
+// Then extract text with progress tracking
+const extractedText = await extractTextFromPDFWithOCR(
+  'https://example.com/document.pdf',
+  {
+    language: 'eng',           // OCR language
+    pageLimit: 10,             // Process only first 10 pages
+    quality: 2,                // Medium quality (1-4)
+    onProgress: (progress) => {
+      console.log(`Progress: ${progress.toFixed(1)}%`);
+    },
+    onStatusUpdate: (status) => {
+      console.log(`Status: ${status}`);
+    }
+  }
+);
+
+console.log('Extracted text:', extractedText);
+*/
+
+// Export for module usage (if using modules)
+// export { extractTextFromPDFWithOCR, loadOCRLibraries };
+
 // Enhanced PDF Viewer Component with simplified controls (no built-in progress)
 const EnhancedPdfViewer = ({ 
   pdfUrl, 
@@ -284,6 +487,31 @@ export const ReadBook = () => {
   const [totalReadingTime, setTotalReadingTime] = useState(0);
   const [pagesRead, setPagesRead] = useState(new Set());
   const timeIntervalRef = useRef(null);
+
+  const text = async () => {
+    // First, load the required libraries
+await loadOCRLibraries();
+
+// Then extract text with progress tracking
+const extractedText = await extractTextFromPDFWithOCR(
+  'https://ripsrvyzgvyvfisvcnwk.supabase.co/storage/v1/object/public/books//1751119925694-book_1751119925694.pdf',
+  {
+    language: 'ara',           // OCR language
+    pageLimit: 10,             // Process only first 10 pages
+    quality: 2,                // Medium quality (1-4)
+    onProgress: (progress) => {
+      console.log(`Progress: ${progress.toFixed(1)}%`);
+    },
+    onStatusUpdate: (status) => {
+      console.log(`Status: ${status}`);
+    }
+  }
+);
+
+console.log('Extracted text:', extractedText);
+  }
+
+  test()
 
   // Load summary from localStorage when book changes
   useEffect(() => {
