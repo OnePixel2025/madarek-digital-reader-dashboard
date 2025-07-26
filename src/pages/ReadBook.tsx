@@ -774,6 +774,7 @@ export const ReadBook = () => {
         // Load PDF document
         const pdf = await window.pdfjsLib.getDocument(pdfUrl).promise;
         const totalPages = pdf.numPages;
+        // const pageLimit = totalPages;
         const pageLimit = Math.min(10, totalPages); // Limit to first 10 pages for demo
         
         setExtractionStatus(`Processing ${pageLimit} pages...`);
@@ -787,7 +788,7 @@ export const ReadBook = () => {
           try {
             // Get PDF page
             const page = await pdf.getPage(pageNum);
-            const viewport = page.getViewport({ scale: 2 }); // Medium quality
+            const viewport = page.getViewport({ scale: 3 }); // High quality
             
             // Create canvas for rendering
             const canvas = document.createElement('canvas');
