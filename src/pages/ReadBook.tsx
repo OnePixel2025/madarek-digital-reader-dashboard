@@ -488,7 +488,7 @@ export const ReadBook = () => {
   const [pagesRead, setPagesRead] = useState(new Set());
   const timeIntervalRef = useRef(null);
 
-  const text = async () => {
+  const test = async () => {
     // First, load the required libraries
 await loadOCRLibraries();
 
