@@ -313,7 +313,7 @@ export const ReadBook = () => {
       console.log('Fetching books for reading...');
       const { data, error } = await supabase
         .from('books')
-        .select('id, title, author, file_path, page_count')
+        .select('id, title, author, file_path, page_count, language')
         .eq('status', 'active')
         .order('created_at', { ascending: false });
       
@@ -557,7 +557,16 @@ export const ReadBook = () => {
     try {
       console.log('Starting server-side text extraction for book:', selectedBookId);
       
-      const extractedText = await extractTextFromPDF(selectedBookId);
+      // Call the server-side extraction function
+      const { data, error } = await supabase.functions.invoke('extract-pdf-text', {
+        body: { bookId: selectedBookId }
+      });
+
+      if (error) {
+        throw new Error(`Server-side extraction failed: ${error.message}`);
+      }
+
+      const extractedText = data?.text || '';
       
       if (!extractedText || extractedText.trim().length === 0) {
         throw new Error('No text could be extracted from the PDF');
@@ -567,7 +576,7 @@ export const ReadBook = () => {
       
       const textForTTS = extractedText.substring(0, 5000);
       
-      const { data, error } = await supabase.functions.invoke('generate-book-tts', {
+      const { data: ttsData, error: ttsError } = await supabase.functions.invoke('generate-book-tts', {
         body: { 
           bookId: selectedBookId,
           text: textForTTS,
@@ -575,14 +584,14 @@ export const ReadBook = () => {
         }
       });
 
-      if (error) throw error;
+      if (ttsError) throw ttsError;
 
-      if (data?.audioUrl) {
-        setTtsAudio(data.audioUrl);
+      if (ttsData?.audioUrl) {
+        setTtsAudio(ttsData.audioUrl);
         setIsTTSActive(true);
         
         if (audioRef.current) {
-          audioRef.current.src = data.audioUrl;
+          audioRef.current.src = ttsData.audioUrl;
           audioRef.current.load();
         }
         
@@ -754,7 +763,7 @@ export const ReadBook = () => {
       await loadOCRLibraries();
 
       // Get language from selected book or default to English
-      const language = selectedBook?.language == "Arabic" ? "ara" : 'eng';
+      const language = selectedBook?.language === "Arabic" ? "ara" : 'eng';
 
       // Extract text
       setExtractionStatus('Starting text extraction...');
