@@ -125,21 +125,21 @@ const EnhancedPdfViewer = ({
   }, [pdfDoc, currentPage, scale, rotation]);
 
   useEffect(() => {
-  const scrollContainer = scrollContainerRef.current;
-  if (!scrollContainer) return;
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
 
-  const handleScroll = () => {
-    const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
-    const maxScroll = scrollHeight - clientHeight;
-    const scrollPercentage = maxScroll > 0 
-      ? Math.min(100, (scrollTop / maxScroll) * 100) 
-      : 100;
-    onScrollProgress?.(scrollPercentage);
-  };
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+      const maxScroll = scrollHeight - clientHeight;
+      const scrollPercentage = maxScroll > 0 
+        ? Math.min(100, (scrollTop / maxScroll) * 100) 
+        : 100;
+      onScrollProgress?.(scrollPercentage);
+    };
 
-  scrollContainer.addEventListener('scroll', handleScroll);
-  return () => scrollContainer.removeEventListener('scroll', handleScroll);
-}, [onScrollProgress]);
+    scrollContainer.addEventListener('scroll', handleScroll);
+    return () => scrollContainer.removeEventListener('scroll', handleScroll);
+  }, [onScrollProgress]);
 
   const handlePrevPage = () => currentPage > 1 && onPageChange(currentPage - 1);
   const handleNextPage = () => currentPage < totalPages && onPageChange(currentPage + 1);
@@ -274,12 +274,9 @@ export const ReadBook = () => {
   const [selectedVoice, setSelectedVoice] = useState('Aria');
   const audioRef = useRef(null);
 
-  
-  const [extractedText, setExtractedText] = useState<string | null>(null);
   const [isExtractingText, setIsExtractingText] = useState(false);
   const [extractionProgress, setExtractionProgress] = useState(0);
   const [extractionStatus, setExtractionStatus] = useState('');
-  const [showExtractedTextDialog, setShowExtractedTextDialog] = useState(false);
   
   // Exam states
   const [examData, setExamData] = useState(null);
@@ -543,21 +540,21 @@ export const ReadBook = () => {
     }
   };
 
-  const handleGenerateTTS = async () => {
-    if (!selectedBookId) {
+  const extractTextFromPDF = async () => {
+    if (!pdfUrl) {
       toast({
-        title: "No book selected",
-        description: "Please select a book to generate audio.",
+        title: "No PDF loaded",
+        description: "Please load a PDF first",
         variant: "destructive",
       });
-      return;
+      return null;
     }
 
-    setTtsLoading(true);
+    setIsExtractingText(true);
+    setExtractionProgress(0);
+    setExtractionStatus('Starting text extraction...');
+
     try {
-      console.log('Starting server-side text extraction for book:', selectedBookId);
-      
-      // Call the server-side extraction function
       const { data, error } = await supabase.functions.invoke('extract-pdf-text', {
         body: { bookId: selectedBookId }
       });
@@ -572,10 +569,47 @@ export const ReadBook = () => {
         throw new Error('No text could be extracted from the PDF');
       }
 
+      setExtractionStatus('Text extraction completed!');
+      return extractedText;
+    } catch (error) {
+      console.error('Text extraction error:', error);
+      toast({
+        title: "Extraction failed",
+        description: error instanceof Error ? error.message : "Failed to extract text",
+        variant: "destructive",
+      });
+      setExtractionStatus(`Error: ${error.message}`);
+      return null;
+    } finally {
+      setIsExtractingText(false);
+    }
+  };
+
+  const handleGenerateTTS = async () => {
+    if (!selectedBookId) {
+      toast({
+        title: "No book selected",
+        description: "Please select a book to generate audio.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setTtsLoading(true);
+    try {
+      // First extract text from the PDF
+      const extractedText = await extractTextFromPDF();
+      
+      if (!extractedText) {
+        throw new Error('No text was extracted from the PDF');
+      }
+
       console.log('Text extracted successfully, generating audio...');
       
+      // Limit the text to 5000 characters (adjust as needed)
       const textForTTS = extractedText.substring(0, 5000);
       
+      // Generate TTS audio from the extracted text
       const { data: ttsData, error: ttsError } = await supabase.functions.invoke('generate-book-tts', {
         body: { 
           bookId: selectedBookId,
@@ -602,7 +636,6 @@ export const ReadBook = () => {
       } else {
         throw new Error('No audio URL returned from the service');
       }
-      
     } catch (error) {
       console.error('Error generating TTS:', error);
       toast({
@@ -614,38 +647,6 @@ export const ReadBook = () => {
       setTtsLoading(false);
     }
   };
-
-  /*
-  const extractTextFromPDF = async (bookId) => {
-    try {
-      console.log('Calling server-side text extraction for book:', bookId);
-      
-      const { data, error } = await supabase.functions.invoke('extract-pdf-text', {
-        body: { bookId }
-      });
-
-      if (error) {
-        console.error('Server-side extraction error:', error);
-        throw new Error(error.message || 'Failed to extract text from PDF');
-      }
-
-      if (!data?.text) {
-        throw new Error('No text was extracted from the PDF');
-      }
-
-      console.log(`Text extraction ${data.cached ? 'retrieved from cache' : 'completed'}:`, {
-        textLength: data.text.length,
-        pageCount: data.pageCount,
-        cached: data.cached
-      });
-
-      return data.text;
-    } catch (error) {
-      console.error('Error in server-side text extraction:', error);
-      throw new Error(error instanceof Error ? error.message : 'Failed to extract text from PDF. Please try again.');
-    }
-  };
-  */
 
   const togglePlayPause = () => {
     if (!audioRef.current || !ttsAudio) return;
@@ -692,198 +693,15 @@ export const ReadBook = () => {
     };
   }, [ttsAudio]);
 
-  /**
-   * Load required OCR libraries (PDF.js and Tesseract.js)
-   */
-  const loadOCRLibraries = async () => {
-    return new Promise<void>((resolve, reject) => {
-      // Check if libraries are already loaded
-      if (window.pdfjsLib && window.Tesseract) {
-        // Set PDF.js worker if needed
-        if (!window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
-          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 
-            'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-        }
-        resolve();
-        return;
-      }
-
-      let scriptsLoaded = 0;
-      const totalScripts = 2;
-      
-      const checkComplete = () => {
-        scriptsLoaded++;
-        if (scriptsLoaded === totalScripts) {
-          // Set PDF.js worker
-          if (window.pdfjsLib) {
-            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 
-              'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-          }
-          resolve();
-        }
-      };
-      
-      // Load PDF.js
-      const pdfScript = document.createElement('script');
-      pdfScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-      pdfScript.onload = checkComplete;
-      pdfScript.onerror = () => reject(new Error('Failed to load PDF.js'));
-      document.head.appendChild(pdfScript);
-      
-      // Load Tesseract.js
-      const tesseractScript = document.createElement('script');
-      tesseractScript.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js';
-      tesseractScript.onload = checkComplete;
-      tesseractScript.onerror = () => reject(new Error('Failed to load Tesseract.js'));
-      document.head.appendChild(tesseractScript);
-    });
-  };
-
-  /**
-   * Extract text from PDF using OCR
-   */
-  const extractTextFromPDF = async () => {
-    if (!pdfUrl) {
-      toast({
-        title: "No PDF loaded",
-        description: "Please load a PDF first",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsExtractingText(true);
-    setExtractionProgress(0);
-    setExtractionStatus('Initializing...');
-    setExtractedText(null);
-
-    try {
-      // Load required libraries
-      setExtractionStatus('Loading OCR libraries...');
-      await loadOCRLibraries();
-
-      // Get language from selected book or default to English
-      const language = selectedBook?.language === "Arabic" ? "ara" : 'eng';
-
-      // Extract text
-      setExtractionStatus('Starting text extraction...');
-      
-      let extractedText = "";
-      let worker = null;
-      
-      try {
-        // Initialize Tesseract worker
-        setExtractionStatus('Initializing OCR engine...');
-        worker = await window.Tesseract.createWorker();
-        await worker.loadLanguage(language);
-        await worker.initialize(language);
-        
-        setExtractionStatus('Loading PDF document...');
-        
-        // Load PDF document
-        const pdf = await window.pdfjsLib.getDocument(pdfUrl).promise;
-        const totalPages = pdf.numPages;
-        // const pageLimit = totalPages;
-        const pageLimit = Math.min(10, totalPages); // Limit to first 10 pages for demo
-        
-        setExtractionStatus(`Processing ${pageLimit} pages...`);
-        
-        let processedPages = 0;
-        
-        // Process each page
-        for (let pageNum = 1; pageNum <= pageLimit; pageNum++) {
-          setExtractionStatus(`Processing page ${pageNum}/${pageLimit}`);
-          
-          try {
-            // Get PDF page
-            const page = await pdf.getPage(pageNum);
-            const viewport = page.getViewport({ scale: 3 }); // High quality
-            
-            // Create canvas for rendering
-            const canvas = document.createElement('canvas');
-            const context = canvas.getContext('2d');
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
-            
-            // Render PDF page to canvas
-            await page.render({
-              canvasContext: context,
-              viewport: viewport,
-            }).promise;
-            
-            // Perform OCR on the canvas
-            const { data: { text } } = await worker.recognize(canvas);
-            
-            // Add page text to result with separator
-            if (text.trim()) {
-              extractedText += `\n--- Page ${pageNum} ---\n${text.trim()}\n`;
-            }
-            
-            // Clean up canvas
-            canvas.remove();
-            
-          } catch (pageError) {
-            console.warn(`Failed to process page ${pageNum}:`, pageError);
-            extractedText += `\n--- Page ${pageNum} (Error) ---\nFailed to extract text from this page\n`;
-          }
-          
-          // Update progress
-          processedPages++;
-          const progress = (processedPages / pageLimit) * 100;
-          setExtractionProgress(progress);
-        }
-        
-        // Clean up worker
-        await worker.terminate();
-        worker = null;
-        
-        setExtractedText(extractedText.trim());
-        setExtractionStatus('Text extraction completed!');
-        setShowExtractedTextDialog(true);
-        
-        toast({
-          title: "Text extracted successfully",
-          description: `Extracted text from ${pageLimit} pages (${extractedText.length} characters)`,
-        });
-
-        // Log the extracted text
-        console.log('Extracted text:', extractedText);
-        console.log('Text language:', language);
-
-      } catch (error) {
-        // Clean up worker on error
-        if (worker) {
-          try {
-            await worker.terminate();
-          } catch (cleanupError) {
-            console.warn('Failed to cleanup worker:', cleanupError);
-          }
-        }
-        throw error;
-      }
-      
-    } catch (error) {
-      console.error('Text extraction error:', error);
-      toast({
-        title: "Extraction failed",
-        description: error instanceof Error ? error.message : "Failed to extract text",
-        variant: "destructive",
-      });
-      setExtractionStatus(`Error: ${error.message}`);
-    } finally {
-      setIsExtractingText(false);
-    }
-  };
-
   const calculateOverallProgress = () => {
-  if (!selectedBook?.page_count) return 0;
-  
-  const pageProgress = ((currentPage - 1) / selectedBook.page_count) * 100;
-  const currentPageWeight = (1 / selectedBook.page_count) * 100;
-  const currentPageContribution = (scrollProgress / 100) * currentPageWeight;
-  
-  return pageProgress + currentPageContribution; // Accurate progress calculation
-};
+    if (!selectedBook?.page_count) return 0;
+    
+    const pageProgress = ((currentPage - 1) / selectedBook.page_count) * 100;
+    const currentPageWeight = (1 / selectedBook.page_count) * 100;
+    const currentPageContribution = (scrollProgress / 100) * currentPageWeight;
+    
+    return pageProgress + currentPageContribution;
+  };
 
   if (booksLoading) {
     return (
@@ -964,13 +782,13 @@ export const ReadBook = () => {
             ) : pdfUrl ? (
               <div className="w-full">
                 <EnhancedPdfViewer
-  pdfUrl={pdfUrl}
-  currentPage={currentPage}
-  totalPages={selectedBook?.page_count || 1}
-  onPageChange={updatePage}
-  onScrollProgress={setScrollProgress}
-  className="w-full"
-/>
+                  pdfUrl={pdfUrl}
+                  currentPage={currentPage}
+                  totalPages={selectedBook?.page_count || 1}
+                  onPageChange={updatePage}
+                  onScrollProgress={setScrollProgress}
+                  className="w-full"
+                />
               </div>
             ) : (
               <div className="flex items-center justify-center p-8 border-2 border-dashed border-stone-200 rounded-lg w-full h-96">
@@ -1035,7 +853,18 @@ export const ReadBook = () => {
                   disabled={ttsLoading || !selectedBookId}
                 >
                   <Mic className="w-4 h-4 mr-2" />
-                  {ttsLoading ? "Generating Audio..." : "Generate Audio with ElevenLabs"}
+                  {ttsLoading ? (
+                    <>
+                      {isExtractingText ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Extracting Text ({Math.round(extractionProgress)}%)...
+                        </>
+                      ) : (
+                        "Generating Audio..."
+                      )}
+                    </>
+                  ) : "Generate Audio with ElevenLabs"}
                 </Button>
               ) : (
                 <div className="space-y-3">
@@ -1053,18 +882,18 @@ export const ReadBook = () => {
                   {ttsAudio && (
                     <div className="space-y-2 p-3 bg-stone-50 rounded-lg">
                       {/* Progress Bar */}
-                       <div className="space-y-1">
-                         <div className="flex justify-between text-xs text-stone-500">
-                           <span>{formatTime(currentTime)}</span>
-                           <span>{formatTime(duration)}</span>
-                         </div>
-                         <div className="w-full bg-stone-200 rounded-full h-1">
-                           <div 
-                             className="bg-emerald-600 h-1 rounded-full transition-all"
-                             style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
-                           />
-                         </div>
-                       </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-stone-500">
+                          <span>{formatTime(currentTime)}</span>
+                          <span>{formatTime(duration)}</span>
+                        </div>
+                        <div className="w-full bg-stone-200 rounded-full h-1">
+                          <div 
+                            className="bg-emerald-600 h-1 rounded-full transition-all"
+                            style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
+                          />
+                        </div>
+                      </div>
                       
                       {/* Volume Control */}
                       <div className="flex items-center gap-2">
@@ -1128,24 +957,6 @@ export const ReadBook = () => {
             </h3>
             
             <div className="space-y-3">
-              <Button 
-                variant="outline" 
-                className="w-full justify-start"
-                onClick={extractTextFromPDF}
-                disabled={isExtractingText || !pdfUrl}
-              >
-                {isExtractingText ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Extracting ({extractionProgress}%)...
-                  </>
-                ) : (
-                  <>
-                    <TextSelect className="w-4 h-4 mr-2" />
-                    Extract Text from PDF
-                  </>
-                )}
-              </Button>
               {bookSummary ? (
                 <Button 
                   variant="outline" 
@@ -1198,17 +1009,17 @@ export const ReadBook = () => {
             <div className="space-y-4">
               {/* Progress Bar */}
               {selectedBook?.page_count && (
-  <div className="space-y-2">
-    <Progress 
-      value={calculateOverallProgress()} 
-      className="w-full" 
-    />
-    <div className="flex justify-between text-xs text-stone-500">
-      <span>{Math.round(calculateOverallProgress())}% complete</span>
-      <span>Page {currentPage} of {selectedBook.page_count}</span>
-    </div>
-  </div>
-)}
+                <div className="space-y-2">
+                  <Progress 
+                    value={calculateOverallProgress()} 
+                    className="w-full" 
+                  />
+                  <div className="flex justify-between text-xs text-stone-500">
+                    <span>{Math.round(calculateOverallProgress())}% complete</span>
+                    <span>Page {currentPage} of {selectedBook.page_count}</span>
+                  </div>
+                </div>
+              )}
               
               <div className="text-sm text-stone-600">
                 {selectedBook && (
@@ -1364,63 +1175,6 @@ export const ReadBook = () => {
                 Submit Exam
               </Button>
             </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={showExtractedTextDialog} onOpenChange={setShowExtractedTextDialog}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <TextSelect className="w-5 h-5" />
-              Extracted Text from PDF
-            </DialogTitle>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            {extractionStatus && (
-              <div className="text-sm text-stone-500 mb-2">
-                Status: {extractionStatus}
-              </div>
-            )}
-
-            {extractedText ? (
-              <div className="space-y-4">
-                <div className="p-4 bg-stone-50 rounded-lg border border-stone-200">
-                  <div className="whitespace-pre-wrap text-sm font-mono max-h-[60vh] overflow-y-auto">
-                    {extractedText}
-                  </div>
-                </div>
-                
-                <div className="flex justify-between items-center">
-                  <div className="text-sm text-stone-500">
-                    Language: {selectedBook?.language || 'eng'} | 
-                    Characters: {extractedText.length}
-                  </div>
-                  
-                  <div className="flex gap-2">
-                    <Button 
-                      variant="outline" 
-                      onClick={() => {
-                        if (extractedText) {
-                          navigator.clipboard.writeText(extractedText);
-                          toast({
-                            title: "Copied to clipboard",
-                            description: "The extracted text has been copied to your clipboard",
-                          });
-                        }
-                      }}
-                    >
-                      Copy Text
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-32">
-                <p className="text-stone-500">No text extracted yet</p>
-              </div>
-            )}
           </div>
         </DialogContent>
       </Dialog>
