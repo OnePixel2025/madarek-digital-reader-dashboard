@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BookOpen, Mic, MicOff, MessageCircle, Brain, Settings, X, Play, Pause, Volume2, VolumeX, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw, Maximize2, Minimize2 } from 'lucide-react';
+import { BookOpen, Mic, MicOff, MessageCircle, Brain, Settings, X, Play, Pause, Volume2, VolumeX, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw, Maximize2, Minimize2, TextSelect, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -606,6 +606,7 @@ export const ReadBook = () => {
     }
   };
 
+  /*
   const extractTextFromPDF = async (bookId) => {
     try {
       console.log('Calling server-side text extraction for book:', bookId);
@@ -635,6 +636,7 @@ export const ReadBook = () => {
       throw new Error(error instanceof Error ? error.message : 'Failed to extract text from PDF. Please try again.');
     }
   };
+  */
 
   const togglePlayPause = () => {
     if (!audioRef.current || !ttsAudio) return;
