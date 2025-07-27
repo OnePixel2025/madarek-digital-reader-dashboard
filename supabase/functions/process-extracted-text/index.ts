@@ -18,13 +18,14 @@ serve(async (req) => {
       throw new Error('Text is required')
     }
 
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')
-    if (!openaiApiKey) {
-      throw new Error('OpenAI API key not configured')
+    const googleApiKey = Deno.env.get('GOOGLE_API_KEY')
+    if (!googleApiKey) {
+      throw new Error('Google API key not configured')
     }
 
     console.log('Processing extracted text for language:', language)
     console.log('Text length:', text.length)
+    console.log('Original extracted text (first 500 chars):', text.substring(0, 500))
 
     // Create system prompt based on language
     const isArabic = language === 'Arabic' || language === 'ara'
@@ -65,36 +66,35 @@ Return clean, well-formatted text that is ready for summarization, text-to-speec
       const chunk = chunks[i]
       console.log(`Processing chunk ${i + 1}/${chunks.length}`)
       
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${openaiApiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
+          contents: [
             {
-              role: 'system',
-              content: systemPrompt
-            },
-            {
-              role: 'user',
-              content: `Please clean and format this extracted text:\n\n${chunk}`
+              parts: [
+                {
+                  text: `${systemPrompt}\n\nPlease clean and format this extracted text:\n\n${chunk}`
+                }
+              ]
             }
           ],
-          temperature: 0.3,
-          max_tokens: 4000
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 4000,
+          }
         })
       })
 
       if (!response.ok) {
         const error = await response.text()
-        throw new Error(`OpenAI API error: ${error}`)
+        throw new Error(`Google Gemini API error: ${error}`)
       }
 
       const data = await response.json()
-      const cleanedChunk = data.choices[0].message.content
+      const cleanedChunk = data.candidates[0].content.parts[0].text
 
       processedText += cleanedChunk + '\n\n'
     }
@@ -102,6 +102,8 @@ Return clean, well-formatted text that is ready for summarization, text-to-speec
     console.log('Text processing completed')
     console.log('Original length:', text.length)
     console.log('Processed length:', processedText.length)
+    console.log('Processed text (first 1000 chars):', processedText.substring(0, 1000))
+    console.log('Processed text (last 500 chars):', processedText.substring(-500))
 
     return new Response(
       JSON.stringify({ 
