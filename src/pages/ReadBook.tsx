@@ -584,17 +584,24 @@ export const ReadBook = () => {
             
             rawText = extractedText.trim();
             
-            // Save raw OCR text to database
-            await supabase
+            // Save raw OCR text to database using upsert
+            const { error: insertError } = await supabase
               .from('book_text_extractions')
-              .insert({
+              .upsert({
                 book_id: bookId,
                 extracted_text: rawText,
                 extraction_method: 'ocr-tesseract',
                 page_count: pageCount,
                 needs_ocr: false,
                 ocr_status: 'completed'
+              }, {
+                onConflict: 'book_id,extraction_method'
               });
+
+            if (insertError) {
+              console.error('Error saving raw OCR text:', insertError);
+              throw new Error(`Failed to save OCR text: ${insertError.message}`);
+            }
 
             console.log('Client-side OCR extraction completed:', {
               textLength: rawText.length,
@@ -647,15 +654,22 @@ export const ReadBook = () => {
 
       console.log('Text processing completed. Processed text preview:', processedText.substring(0, 500));
 
-      // Save processed text to database
-      await supabase
+      // Save processed text to database using upsert
+      const { error: processedInsertError } = await supabase
         .from('book_text_extractions')
-        .insert({
+        .upsert({
           book_id: bookId,
           extracted_text: processedText,
           extraction_method: 'processed',
           page_count: pageCount
+        }, {
+          onConflict: 'book_id,extraction_method'
         });
+
+      if (processedInsertError) {
+        console.error('Error saving processed text:', processedInsertError);
+        throw new Error(`Failed to save processed text: ${processedInsertError.message}`);
+      }
 
       console.log('Text extraction and processing completed successfully');
       return processedText;

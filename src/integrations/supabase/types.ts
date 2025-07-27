@@ -102,7 +102,7 @@ export type Database = {
           {
             foreignKeyName: "book_text_extractions_book_id_fkey"
             columns: ["book_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "books"
             referencedColumns: ["id"]
           },
