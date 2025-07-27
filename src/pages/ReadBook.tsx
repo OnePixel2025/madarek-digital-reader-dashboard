@@ -458,6 +458,94 @@ export const ReadBook = () => {
     }, 100);
   };
 
+  // Extract and process text from PDF
+  const extractAndProcessText = async (bookId: string) => {
+    try {
+      console.log('Starting text extraction and processing for book:', bookId);
+      
+      // First, try to get existing processed text from database
+      const { data: existingExtraction } = await supabase
+        .from('book_text_extractions')
+        .select('extracted_text')
+        .eq('book_id', bookId)
+        .eq('extraction_method', 'processed')
+        .maybeSingle();
+
+      if (existingExtraction?.extracted_text) {
+        console.log('Found existing processed text');
+        return existingExtraction.extracted_text;
+      }
+
+      // Check if raw extraction exists
+      const { data: rawExtraction } = await supabase
+        .from('book_text_extractions')
+        .select('extracted_text')
+        .eq('book_id', bookId)
+        .eq('extraction_method', 'simple-pattern-matching')
+        .maybeSingle();
+
+      let rawText = rawExtraction?.extracted_text;
+
+      // If no raw text exists, extract it first
+      if (!rawText) {
+        console.log('No existing text found, extracting from PDF...');
+        const { data: extractData, error: extractError } = await supabase.functions.invoke('extract-pdf-text', {
+          body: { bookId }
+        });
+
+        if (extractError) {
+          throw new Error(`Text extraction failed: ${extractError.message}`);
+        }
+
+        rawText = extractData?.text;
+      }
+
+      if (!rawText || rawText.trim().length === 0) {
+        throw new Error('No text could be extracted from the PDF');
+      }
+
+      console.log('Raw text extracted, processing with LLM...');
+      
+      // Get book language for processing
+      const selectedBook = books.find(book => book.id === bookId);
+      const language = selectedBook?.language || 'en';
+
+      // Process text with LLM for cleaning and formatting
+      const { data: processData, error: processError } = await supabase.functions.invoke('process-extracted-text', {
+        body: { 
+          text: rawText,
+          language: language
+        }
+      });
+
+      if (processError) {
+        throw new Error(`Text processing failed: ${processError.message}`);
+      }
+
+      const processedText = processData?.processedText;
+      if (!processedText) {
+        throw new Error('Failed to process extracted text');
+      }
+
+      // Save processed text to database
+      await supabase
+        .from('book_text_extractions')
+        .insert({
+          book_id: bookId,
+          extracted_text: processedText,
+          extraction_method: 'processed',
+          page_count: null
+        });
+
+      console.log('Text extraction and processing completed');
+      return processedText;
+
+    } catch (error) {
+      console.error('Error in extractAndProcessText:', error);
+      throw error;
+    }
+  };
+
   const handleGenerateSummary = async () => {
     if (!selectedBookId) {
       toast({
@@ -470,6 +558,9 @@ export const ReadBook = () => {
 
     setSummaryLoading(true);
     try {
+      // Extract and process text first
+      await extractAndProcessText(selectedBookId);
+
       const { data, error } = await supabase.functions.invoke('generate-book-summary', {
         body: { bookId: selectedBookId }
       });
@@ -514,6 +605,9 @@ export const ReadBook = () => {
 
     setExamLoading(true);
     try {
+      // Extract and process text first
+      await extractAndProcessText(selectedBookId);
+
       const { data, error } = await supabase.functions.invoke('generate-book-exam', {
         body: { bookId: selectedBookId }
       });
@@ -555,26 +649,19 @@ export const ReadBook = () => {
 
     setTtsLoading(true);
     try {
-      console.log('Starting server-side text extraction for book:', selectedBookId);
+      console.log('Starting text extraction and processing for TTS...');
       
-      // Call the server-side extraction function
-      const { data, error } = await supabase.functions.invoke('extract-pdf-text', {
-        body: { bookId: selectedBookId }
-      });
-
-      if (error) {
-        throw new Error(`Server-side extraction failed: ${error.message}`);
+      // Extract and process text first
+      const processedText = await extractAndProcessText(selectedBookId);
+      
+      if (!processedText || processedText.trim().length === 0) {
+        throw new Error('No processed text available for TTS generation');
       }
 
-      const extractedText = data?.text || '';
+      console.log('Processed text ready, generating audio...');
       
-      if (!extractedText || extractedText.trim().length === 0) {
-        throw new Error('No text could be extracted from the PDF');
-      }
-
-      console.log('Text extracted successfully, generating audio...');
-      
-      const textForTTS = extractedText.substring(0, 5000);
+      // Use first 5000 characters of processed text for TTS
+      const textForTTS = processedText.substring(0, 5000);
       
       const { data: ttsData, error: ttsError } = await supabase.functions.invoke('generate-book-tts', {
         body: { 
