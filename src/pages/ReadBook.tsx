@@ -508,7 +508,7 @@ export const ReadBook = () => {
       
       // Get book language for processing
       const selectedBook = books.find(book => book.id === bookId);
-      const language = selectedBook?.language || 'en';
+      const language = selectedBook?.language || 'eng';
 
       // Process text with LLM for cleaning and formatting
       const { data: processData, error: processError } = await supabase.functions.invoke('process-extracted-text', {
