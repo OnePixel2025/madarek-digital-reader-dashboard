@@ -476,35 +476,153 @@ export const ReadBook = () => {
         return existingExtraction.extracted_text;
       }
 
-      // Check if raw extraction exists
+      // Check if raw OCR extraction exists
       const { data: rawExtraction } = await supabase
         .from('book_text_extractions')
-        .select('extracted_text')
+        .select('extracted_text, page_count')
         .eq('book_id', bookId)
-        .eq('extraction_method', 'simple-pattern-matching')
+        .eq('extraction_method', 'ocr-tesseract')
         .maybeSingle();
 
       let rawText = rawExtraction?.extracted_text;
+      let pageCount = rawExtraction?.page_count;
 
-      // If no raw text exists, extract it first
+      // If no raw text exists, extract it using client-side OCR
       if (!rawText) {
-        console.log('No existing text found, extracting from PDF...');
-        const { data: extractData, error: extractError } = await supabase.functions.invoke('extract-pdf-text', {
-          body: { bookId }
-        });
-
-        if (extractError) {
-          throw new Error(`Text extraction failed: ${extractError.message}`);
+        console.log('No existing OCR text found, extracting using client-side OCR...');
+        
+        // Get the book to access its PDF
+        const selectedBook = books.find(book => book.id === bookId);
+        if (!selectedBook?.file_path) {
+          throw new Error('Book file path not found');
         }
 
-        rawText = extractData?.text;
+        // Set up for OCR extraction
+        setIsExtractingText(true);
+        setExtractionProgress(0);
+        setExtractionStatus('Loading OCR libraries...');
+
+        try {
+          // Load required libraries
+          await loadOCRLibraries();
+
+          // Get language from selected book
+          const language = selectedBook.language === "Arabic" ? "ara" : 'eng';
+          
+          // Create PDF URL
+          const pdfUrl = `https://ripsrvyzgvyvfisvcnwk.supabase.co/storage/v1/object/public/books/${selectedBook.file_path}`;
+
+          setExtractionStatus('Starting text extraction...');
+          
+          let extractedText = "";
+          let worker = null;
+          
+          try {
+            // Initialize Tesseract worker
+            setExtractionStatus('Initializing OCR engine...');
+            worker = await window.Tesseract.createWorker();
+            await worker.loadLanguage(language);
+            await worker.initialize(language);
+            
+            setExtractionStatus('Loading PDF document...');
+            
+            // Load PDF document
+            const pdf = await window.pdfjsLib.getDocument(pdfUrl).promise;
+            const totalPages = pdf.numPages;
+            pageCount = totalPages;
+            
+            setExtractionStatus(`Processing ${totalPages} pages...`);
+            
+            let processedPages = 0;
+            
+            // Process each page
+            for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+              setExtractionStatus(`Processing page ${pageNum}/${totalPages}`);
+              
+              try {
+                // Get PDF page
+                const page = await pdf.getPage(pageNum);
+                const viewport = page.getViewport({ scale: 3 }); // High quality
+                
+                // Create canvas for rendering
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                
+                // Render PDF page to canvas
+                await page.render({
+                  canvasContext: context,
+                  viewport: viewport,
+                }).promise;
+                
+                // Perform OCR on the canvas
+                const { data: { text } } = await worker.recognize(canvas);
+                
+                // Add page text to result with separator
+                if (text.trim()) {
+                  extractedText += `\n--- Page ${pageNum} ---\n${text.trim()}\n`;
+                }
+                
+                // Clean up canvas
+                canvas.remove();
+                
+              } catch (pageError) {
+                console.warn(`Failed to process page ${pageNum}:`, pageError);
+                extractedText += `\n--- Page ${pageNum} (Error) ---\nFailed to extract text from this page\n`;
+              }
+              
+              // Update progress
+              processedPages++;
+              const progress = (processedPages / totalPages) * 100;
+              setExtractionProgress(progress);
+            }
+            
+            // Clean up worker
+            await worker.terminate();
+            worker = null;
+            
+            rawText = extractedText.trim();
+            
+            // Save raw OCR text to database
+            await supabase
+              .from('book_text_extractions')
+              .insert({
+                book_id: bookId,
+                extracted_text: rawText,
+                extraction_method: 'ocr-tesseract',
+                page_count: pageCount,
+                needs_ocr: false,
+                ocr_status: 'completed'
+              });
+
+            console.log('Client-side OCR extraction completed:', {
+              textLength: rawText.length,
+              pageCount: pageCount
+            });
+            
+          } catch (error) {
+            // Clean up worker on error
+            if (worker) {
+              try {
+                await worker.terminate();
+              } catch (cleanupError) {
+                console.warn('Failed to cleanup worker:', cleanupError);
+              }
+            }
+            throw error;
+          }
+          
+        } finally {
+          setIsExtractingText(false);
+        }
       }
 
       if (!rawText || rawText.trim().length === 0) {
         throw new Error('No text could be extracted from the PDF');
       }
 
-      console.log('Raw text extracted, processing with LLM...');
+      console.log('Raw text available, processing with LLM...');
       
       // Get book language for processing
       const selectedBook = books.find(book => book.id === bookId);
@@ -527,6 +645,8 @@ export const ReadBook = () => {
         throw new Error('Failed to process extracted text');
       }
 
+      console.log('Text processing completed. Processed text preview:', processedText.substring(0, 500));
+
       // Save processed text to database
       await supabase
         .from('book_text_extractions')
@@ -534,10 +654,10 @@ export const ReadBook = () => {
           book_id: bookId,
           extracted_text: processedText,
           extraction_method: 'processed',
-          page_count: null
+          page_count: pageCount
         });
 
-      console.log('Text extraction and processing completed');
+      console.log('Text extraction and processing completed successfully');
       return processedText;
 
     } catch (error) {
