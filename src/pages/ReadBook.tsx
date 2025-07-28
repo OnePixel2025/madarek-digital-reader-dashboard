@@ -263,6 +263,28 @@ const EnhancedPdfViewer = ({
     }
   }, [renderingPages, renderedPages, processRenderQueue]);
 
+  // Get currently visible pages
+  const getVisiblePages = useCallback(() => {
+    if (!scrollContainerRef.current || !pagesContainerRef.current) return [];
+
+    const scrollContainer = scrollContainerRef.current;
+    const scrollTop = scrollContainer.scrollTop;
+    const scrollBottom = scrollTop + scrollContainer.clientHeight;
+    const visiblePages = [];
+
+    pageElements.forEach((elements, pageNum) => {
+      const pageContainer = elements.container;
+      const pageTop = pageContainer.offsetTop;
+      const pageBottom = pageTop + pageContainer.offsetHeight;
+
+      if (pageBottom >= scrollTop && pageTop <= scrollBottom) {
+        visiblePages.push(pageNum);
+      }
+    });
+
+    return visiblePages.sort((a, b) => a - b);
+  }, [pageElements]);
+
   // Re-render all pages when scale or rotation changes
   useEffect(() => {
     if (!pdfDoc || pageElements.size === 0) return;
@@ -311,28 +333,6 @@ const EnhancedPdfViewer = ({
     // Small delay to ensure canvas contexts are ready
     setTimeout(renderVisiblePages, 50);
   }, [pdfDoc, pageElements, scale, rotation, totalPages, getVisiblePages, queuePageRender]);
-
-  // Get currently visible pages
-  const getVisiblePages = useCallback(() => {
-    if (!scrollContainerRef.current || !pagesContainerRef.current) return [];
-
-    const scrollContainer = scrollContainerRef.current;
-    const scrollTop = scrollContainer.scrollTop;
-    const scrollBottom = scrollTop + scrollContainer.clientHeight;
-    const visiblePages = [];
-
-    pageElements.forEach((elements, pageNum) => {
-      const pageContainer = elements.container;
-      const pageTop = pageContainer.offsetTop;
-      const pageBottom = pageTop + pageContainer.offsetHeight;
-
-      if (pageBottom >= scrollTop && pageTop <= scrollBottom) {
-        visiblePages.push(pageNum);
-      }
-    });
-
-    return visiblePages.sort((a, b) => a - b);
-  }, [pageElements]);
 
   // Update current page based on scroll position
   const updateCurrentPageFromScroll = useCallback(() => {
