@@ -51,6 +51,9 @@ const EnhancedPdfViewer = ({
   const [renderedPages, setRenderedPages] = useState(new Set());
   const [pageElements, setPageElements] = useState(new Map());
   const [isScrolling, setIsScrolling] = useState(false);
+  const [renderingPages, setRenderingPages] = useState(new Set());
+  const renderTasksRef = useRef(new Map());
+  const renderQueueRef = useRef([]);
   const scrollTimeoutRef = useRef(null);
 
   // Load PDF.js from CDN
@@ -87,7 +90,20 @@ const EnhancedPdfViewer = ({
       try {
         setIsLoading(true);
         setError(null);
+        
+        // Cancel all existing render tasks and clear state
+        renderTasksRef.current.forEach((task) => {
+          try {
+            task.cancel();
+          } catch (e) {
+            // Ignore cancellation errors
+          }
+        });
+        renderTasksRef.current.clear();
+        renderQueueRef.current = [];
+        
         setRenderedPages(new Set());
+        setRenderingPages(new Set());
         setPageElements(new Map());
 
         const pdf = await pdfLib.getDocument(pdfUrl).promise;
@@ -122,6 +138,7 @@ const EnhancedPdfViewer = ({
       
       const canvas = document.createElement('canvas');
       canvas.className = 'max-w-full h-auto';
+      canvas.setAttribute('data-page', pageNum); // Add page identifier to canvas
       
       const loadingDiv = document.createElement('div');
       loadingDiv.className = 'absolute inset-0 flex items-center justify-center bg-white bg-opacity-75';
@@ -136,40 +153,136 @@ const EnhancedPdfViewer = ({
     }
     
     setPageElements(newPageElements);
-  }, [pdfDoc, totalPages]);
+    
+    // Queue initial visible pages for rendering
+    setTimeout(() => {
+      const visiblePages = getVisiblePages();
+      visiblePages.forEach(pageNum => {
+        queuePageRender(pageNum);
+      });
+    }, 100);
+  }, [pdfDoc, totalPages, getVisiblePages, queuePageRender]);
 
-  // Render a specific page
-  const renderPage = useCallback(async (pageNum) => {
-    if (!pdfDoc || !pageElements.has(pageNum) || renderedPages.has(pageNum)) return;
+  // Cancel any existing render task for a page
+  const cancelRenderTask = useCallback((pageNum) => {
+    const existingTask = renderTasksRef.current.get(pageNum);
+    if (existingTask) {
+      try {
+        existingTask.cancel();
+      } catch (e) {
+        // Ignore cancellation errors
+      }
+      renderTasksRef.current.delete(pageNum);
+    }
+  }, []);
+
+  // Process render queue
+  const processRenderQueue = useCallback(async () => {
+    if (renderQueueRef.current.length === 0) return;
+
+    const pageNum = renderQueueRef.current.shift();
+    if (!pageNum || renderingPages.has(pageNum) || renderedPages.has(pageNum)) {
+      // Continue processing queue
+      setTimeout(processRenderQueue, 0);
+      return;
+    }
 
     try {
+      setRenderingPages(prev => new Set([...prev, pageNum]));
+      
       const page = await pdfDoc.getPage(pageNum);
       const { canvas, loadingDiv } = pageElements.get(pageNum);
+      
+      if (!canvas || !loadingDiv) {
+        setRenderingPages(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(pageNum);
+          return newSet;
+        });
+        setTimeout(processRenderQueue, 0);
+        return;
+      }
+
+      // Cancel any existing render task for this page
+      cancelRenderTask(pageNum);
+
       const context = canvas.getContext('2d');
       const viewport = page.getViewport({ scale, rotation });
 
       canvas.height = viewport.height;
       canvas.width = viewport.width;
-
       context.clearRect(0, 0, canvas.width, canvas.height);
 
-      await page.render({
+      // Create and store the render task
+      const renderTask = page.render({
         canvasContext: context,
         viewport: viewport
-      }).promise;
+      });
 
+      renderTasksRef.current.set(pageNum, renderTask);
+
+      await renderTask.promise;
+
+      // Clean up the render task
+      renderTasksRef.current.delete(pageNum);
+      
       loadingDiv.style.display = 'none';
       setRenderedPages(prev => new Set([...prev, pageNum]));
+      setRenderingPages(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(pageNum);
+        return newSet;
+      });
+      
     } catch (err) {
-      console.error(`Error rendering page ${pageNum}:`, err);
+      if (err.name !== 'RenderingCancelledException') {
+        console.error(`Error rendering page ${pageNum}:`, err);
+      }
+      
+      setRenderingPages(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(pageNum);
+        return newSet;
+      });
+      
+      // Clean up the render task
+      renderTasksRef.current.delete(pageNum);
     }
-  }, [pdfDoc, pageElements, scale, rotation, renderedPages]);
+
+    // Continue processing queue after a small delay
+    setTimeout(processRenderQueue, 10);
+  }, [pdfDoc, pageElements, scale, rotation, renderedPages, renderingPages, cancelRenderTask]);
+
+  // Add page to render queue
+  const queuePageRender = useCallback((pageNum) => {
+    if (!renderQueueRef.current.includes(pageNum) && 
+        !renderingPages.has(pageNum) && 
+        !renderedPages.has(pageNum)) {
+      renderQueueRef.current.push(pageNum);
+      processRenderQueue();
+    }
+  }, [renderingPages, renderedPages, processRenderQueue]);
 
   // Re-render all pages when scale or rotation changes
   useEffect(() => {
     if (!pdfDoc || pageElements.size === 0) return;
 
+    // Cancel all existing render tasks
+    renderTasksRef.current.forEach((task, pageNum) => {
+      try {
+        task.cancel();
+      } catch (e) {
+        // Ignore cancellation errors
+      }
+    });
+    renderTasksRef.current.clear();
+
+    // Clear render queue
+    renderQueueRef.current = [];
+    
+    // Reset states
     setRenderedPages(new Set());
+    setRenderingPages(new Set());
     
     // Show loading indicators and clear canvases
     pageElements.forEach(({ canvas, loadingDiv }) => {
@@ -178,25 +291,26 @@ const EnhancedPdfViewer = ({
       loadingDiv.style.display = 'flex';
     });
 
-    // Render visible pages first, then others
-    const renderVisiblePages = async () => {
+    // Queue visible pages first, then others
+    const renderVisiblePages = () => {
       const visiblePages = getVisiblePages();
       
-      // Render visible pages first
-      for (const pageNum of visiblePages) {
-        await renderPage(pageNum);
-      }
+      // Queue visible pages first
+      visiblePages.forEach(pageNum => {
+        queuePageRender(pageNum);
+      });
       
-      // Then render remaining pages
+      // Then queue remaining pages
       for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
         if (!visiblePages.includes(pageNum)) {
-          await renderPage(pageNum);
+          queuePageRender(pageNum);
         }
       }
     };
 
-    renderVisiblePages();
-  }, [pdfDoc, pageElements, scale, rotation, totalPages, renderPage]);
+    // Small delay to ensure canvas contexts are ready
+    setTimeout(renderVisiblePages, 50);
+  }, [pdfDoc, pageElements, scale, rotation, totalPages, getVisiblePages, queuePageRender]);
 
   // Get currently visible pages
   const getVisiblePages = useCallback(() => {
