@@ -129,6 +129,23 @@ export const AIChat = () => {
     retryDelay: 1000
   });
 
+  // Auto-load the most recent conversation for the selected book
+  useEffect(() => {
+    if (bookId && !conversationId && conversations.length > 0 && !currentConversationId) {
+      // Find the most recent conversation for this book
+      const bookConversation = conversations.find(conv => conv.book_id === bookId);
+      if (bookConversation) {
+        console.log('Auto-loading conversation for book:', bookConversation);
+        setCurrentConversationId(bookConversation.id);
+        
+        // Update URL to include the conversation ID
+        const newSearchParams = new URLSearchParams(searchParams);
+        newSearchParams.set('conversationId', bookConversation.id);
+        setSearchParams(newSearchParams);
+      }
+    }
+  }, [bookId, conversationId, conversations, currentConversationId, searchParams, setSearchParams]);
+
   // Fetch conversation messages if conversationId is provided - FIXED
   const { data: existingMessages } = useQuery({
     queryKey: ['conversation-messages', currentConversationId],
@@ -226,24 +243,30 @@ export const AIChat = () => {
   // Load existing conversation messages
   useEffect(() => {
     if (existingMessages && existingMessages.length > 0) {
+      console.log('Loading existing messages for conversation:', currentConversationId, existingMessages);
       setChatMessages(existingMessages);
-      console.log('Loaded existing messages:', existingMessages);
+    } else if (currentConversationId && existingMessages && existingMessages.length === 0) {
+      // If we have a conversation ID but no messages, it's a new or empty conversation
+      console.log('Conversation exists but has no messages yet');
+      setChatMessages([]);
     }
-  }, [existingMessages]);
+  }, [existingMessages, currentConversationId]);
 
   // Initialize chat with appropriate welcome message
   useEffect(() => {
+    // Only show welcome message if we don't have a current conversation
+    // and we haven't loaded any existing messages
     if (!currentConversationId && !existingMessages?.length) {
       if (book) {
         setChatMessages([{
-          id: '1',
+          id: 'welcome-1',
           type: 'bot',
           message: `Hello! I'm your AI reading assistant. I see you're interested in discussing "${book.title}"${book.author ? ` by ${book.author}` : ''}. What would you like to know about this book?`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }]);
       } else if (!bookId) {
         setChatMessages([{
-          id: '1',
+          id: 'welcome-1',
           type: 'bot',
           message: 'Hello! I\'m your AI reading assistant. I can help you understand books, answer questions, and provide tutoring. Please select a book first, or ask me general reading-related questions.',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -358,6 +381,7 @@ export const AIChat = () => {
     if (bookId) {
       newSearchParams.set('bookId', bookId);
     }
+    // Remove conversationId from URL to start fresh
     setSearchParams(newSearchParams);
   };
 
