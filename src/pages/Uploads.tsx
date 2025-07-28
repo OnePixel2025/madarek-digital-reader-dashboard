@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { BookUploadDialog } from '@/components/BookUploadDialog';
 import { useToast } from '@/hooks/use-toast';
+import { useNavigate } from 'react-router-dom';
 
 interface Book {
   id: string;
@@ -58,6 +59,11 @@ const getStatusText = (status: string) => {
 export const Uploads = () => {
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const { toast } = useToast();
+  const navigate = useNavigate();
+
+  const handleViewBook = (bookId: string) => {
+    navigate(`/read-book/${bookId}`);
+  };
 
   const { data: books = [], isLoading, refetch } = useQuery({
     queryKey: ['books'],
@@ -255,7 +261,7 @@ export const Uploads = () => {
                     
                     <div className="flex gap-2">
                       {book.status === 'active' && (
-                        <Button variant="outline" size="sm">
+                        <Button variant="outline" size="sm" onClick={() => handleViewBook(book.id)}>
                           View Book
                         </Button>
                       )}
