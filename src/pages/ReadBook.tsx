@@ -40,7 +40,7 @@ const EnhancedPdfViewer = ({
 }) => {
   const containerRef = useRef(null);
   const scrollContainerRef = useRef(null);
-  const canvasRef = useRef(null);
+  const pagesContainerRef = useRef(null);
   const [scale, setScale] = useState(1.2);
   const [rotation, setRotation] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -48,7 +48,10 @@ const EnhancedPdfViewer = ({
   const [error, setError] = useState(null);
   const [pdfLib, setPdfLib] = useState(null);
   const [pdfDoc, setPdfDoc] = useState(null);
-  const [pageRendering, setPageRendering] = useState(false);
+  const [renderedPages, setRenderedPages] = useState(new Set());
+  const [pageElements, setPageElements] = useState(new Map());
+  const [isScrolling, setIsScrolling] = useState(false);
+  const scrollTimeoutRef = useRef(null);
 
   // Load PDF.js from CDN
   useEffect(() => {
@@ -63,10 +66,16 @@ const EnhancedPdfViewer = ({
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
       setPdfLib(window.pdfjsLib);
     };
+    script.onerror = () => {
+      setError('Failed to load PDF.js library');
+      setIsLoading(false);
+    };
     document.head.appendChild(script);
 
     return () => {
-      document.head.removeChild(script);
+      if (document.head.contains(script)) {
+        document.head.removeChild(script);
+      }
     };
   }, []);
 
@@ -78,13 +87,15 @@ const EnhancedPdfViewer = ({
       try {
         setIsLoading(true);
         setError(null);
+        setRenderedPages(new Set());
+        setPageElements(new Map());
 
         const pdf = await pdfLib.getDocument(pdfUrl).promise;
         setPdfDoc(pdf);
         setIsLoading(false);
       } catch (err) {
         console.error('Error loading PDF:', err);
-        setError(err.message);
+        setError(err.message || 'Failed to load PDF');
         setIsLoading(false);
       }
     };
@@ -92,57 +103,220 @@ const EnhancedPdfViewer = ({
     loadPDF();
   }, [pdfLib, pdfUrl]);
 
-  // Render current page
+  // Create page containers when PDF is loaded
   useEffect(() => {
-    if (!pdfDoc || !canvasRef.current || pageRendering) return;
+    if (!pdfDoc || !pagesContainerRef.current) return;
 
-    const renderPage = async () => {
-      setPageRendering(true);
-      try {
-        const page = await pdfDoc.getPage(currentPage);
-        const canvas = canvasRef.current;
-        const context = canvas.getContext('2d');
-        const viewport = page.getViewport({ scale, rotation });
+    const container = pagesContainerRef.current;
+    container.innerHTML = '';
+    
+    const newPageElements = new Map();
 
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
+    for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+      const pageContainer = document.createElement('div');
+      pageContainer.className = 'page-container mb-4 flex justify-center';
+      pageContainer.setAttribute('data-page', pageNum);
+      
+      const pageWrapper = document.createElement('div');
+      pageWrapper.className = 'bg-white shadow-lg relative';
+      
+      const canvas = document.createElement('canvas');
+      canvas.className = 'max-w-full h-auto';
+      
+      const loadingDiv = document.createElement('div');
+      loadingDiv.className = 'absolute inset-0 flex items-center justify-center bg-white bg-opacity-75';
+      loadingDiv.innerHTML = '<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>';
+      
+      pageWrapper.appendChild(canvas);
+      pageWrapper.appendChild(loadingDiv);
+      pageContainer.appendChild(pageWrapper);
+      container.appendChild(pageContainer);
+      
+      newPageElements.set(pageNum, { canvas, loadingDiv, container: pageContainer });
+    }
+    
+    setPageElements(newPageElements);
+  }, [pdfDoc, totalPages]);
 
-        context.clearRect(0, 0, canvas.width, canvas.height);
+  // Render a specific page
+  const renderPage = useCallback(async (pageNum) => {
+    if (!pdfDoc || !pageElements.has(pageNum) || renderedPages.has(pageNum)) return;
 
-        await page.render({
-          canvasContext: context,
-          viewport: viewport
-        }).promise;
-      } catch (err) {
-        console.error('Error rendering page:', err);
-        setError(err.message);
-      } finally {
-        setPageRendering(false);
+    try {
+      const page = await pdfDoc.getPage(pageNum);
+      const { canvas, loadingDiv } = pageElements.get(pageNum);
+      const context = canvas.getContext('2d');
+      const viewport = page.getViewport({ scale, rotation });
+
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+
+      context.clearRect(0, 0, canvas.width, canvas.height);
+
+      await page.render({
+        canvasContext: context,
+        viewport: viewport
+      }).promise;
+
+      loadingDiv.style.display = 'none';
+      setRenderedPages(prev => new Set([...prev, pageNum]));
+    } catch (err) {
+      console.error(`Error rendering page ${pageNum}:`, err);
+    }
+  }, [pdfDoc, pageElements, scale, rotation, renderedPages]);
+
+  // Re-render all pages when scale or rotation changes
+  useEffect(() => {
+    if (!pdfDoc || pageElements.size === 0) return;
+
+    setRenderedPages(new Set());
+    
+    // Show loading indicators and clear canvases
+    pageElements.forEach(({ canvas, loadingDiv }) => {
+      const context = canvas.getContext('2d');
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      loadingDiv.style.display = 'flex';
+    });
+
+    // Render visible pages first, then others
+    const renderVisiblePages = async () => {
+      const visiblePages = getVisiblePages();
+      
+      // Render visible pages first
+      for (const pageNum of visiblePages) {
+        await renderPage(pageNum);
+      }
+      
+      // Then render remaining pages
+      for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+        if (!visiblePages.includes(pageNum)) {
+          await renderPage(pageNum);
+        }
       }
     };
 
-    renderPage();
-  }, [pdfDoc, currentPage, scale, rotation]);
+    renderVisiblePages();
+  }, [pdfDoc, pageElements, scale, rotation, totalPages, renderPage]);
 
+  // Get currently visible pages
+  const getVisiblePages = useCallback(() => {
+    if (!scrollContainerRef.current || !pagesContainerRef.current) return [];
+
+    const scrollContainer = scrollContainerRef.current;
+    const scrollTop = scrollContainer.scrollTop;
+    const scrollBottom = scrollTop + scrollContainer.clientHeight;
+    const visiblePages = [];
+
+    pageElements.forEach((elements, pageNum) => {
+      const pageContainer = elements.container;
+      const pageTop = pageContainer.offsetTop;
+      const pageBottom = pageTop + pageContainer.offsetHeight;
+
+      if (pageBottom >= scrollTop && pageTop <= scrollBottom) {
+        visiblePages.push(pageNum);
+      }
+    });
+
+    return visiblePages.sort((a, b) => a - b);
+  }, [pageElements]);
+
+  // Update current page based on scroll position
+  const updateCurrentPageFromScroll = useCallback(() => {
+    const visiblePages = getVisiblePages();
+    if (visiblePages.length > 0) {
+      const scrollContainer = scrollContainerRef.current;
+      const scrollTop = scrollContainer.scrollTop;
+      const containerHeight = scrollContainer.clientHeight;
+      const centerPoint = scrollTop + containerHeight / 2;
+
+      let closestPage = visiblePages[0];
+      let closestDistance = Infinity;
+
+      visiblePages.forEach(pageNum => {
+        const pageContainer = pageElements.get(pageNum)?.container;
+        if (pageContainer) {
+          const pageCenter = pageContainer.offsetTop + pageContainer.offsetHeight / 2;
+          const distance = Math.abs(centerPoint - pageCenter);
+          if (distance < closestDistance) {
+            closestDistance = distance;
+            closestPage = pageNum;
+          }
+        }
+      });
+
+      if (closestPage !== currentPage) {
+        onPageChange(closestPage);
+      }
+    }
+  }, [getVisiblePages, pageElements, currentPage, onPageChange]);
+
+  // Handle scroll events
   useEffect(() => {
-  const scrollContainer = scrollContainerRef.current;
-  if (!scrollContainer) return;
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
 
-  const handleScroll = () => {
-    const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
-    const maxScroll = scrollHeight - clientHeight;
-    const scrollPercentage = maxScroll > 0 
-      ? Math.min(100, (scrollTop / maxScroll) * 100) 
-      : 100;
-    onScrollProgress?.(scrollPercentage);
+    const handleScroll = () => {
+      // Calculate scroll progress
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+      const maxScroll = scrollHeight - clientHeight;
+      const scrollPercentage = maxScroll > 0 
+        ? Math.min(100, (scrollTop / maxScroll) * 100) 
+        : 100;
+      onScrollProgress?.(scrollPercentage);
+
+      // Update current page based on scroll position
+      setIsScrolling(true);
+      
+      // Clear previous timeout
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+      
+      // Set new timeout to update current page after scrolling stops
+      scrollTimeoutRef.current = setTimeout(() => {
+        setIsScrolling(false);
+        updateCurrentPageFromScroll();
+      }, 150);
+    };
+
+    scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      scrollContainer.removeEventListener('scroll', handleScroll);
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, [onScrollProgress, updateCurrentPageFromScroll]);
+
+  // Scroll to specific page when currentPage changes (but not during scrolling)
+  useEffect(() => {
+    if (isScrolling || !pageElements.has(currentPage)) return;
+
+    const pageContainer = pageElements.get(currentPage)?.container;
+    if (pageContainer && scrollContainerRef.current) {
+      const scrollContainer = scrollContainerRef.current;
+      const containerTop = scrollContainer.offsetTop;
+      const pageTop = pageContainer.offsetTop;
+      
+      scrollContainer.scrollTo({
+        top: pageTop - containerTop - 20, // 20px offset for better visibility
+        behavior: 'smooth'
+      });
+    }
+  }, [currentPage, pageElements, isScrolling]);
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      onPageChange(currentPage - 1);
+    }
   };
 
-  scrollContainer.addEventListener('scroll', handleScroll);
-  return () => scrollContainer.removeEventListener('scroll', handleScroll);
-}, [onScrollProgress]);
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      onPageChange(currentPage + 1);
+    }
+  };
 
-  const handlePrevPage = () => currentPage > 1 && onPageChange(currentPage - 1);
-  const handleNextPage = () => currentPage < totalPages && onPageChange(currentPage + 1);
   const handleZoomIn = () => setScale(prev => Math.min(prev + 0.2, 3));
   const handleZoomOut = () => setScale(prev => Math.max(prev - 0.2, 0.5));
   const handleRotate = () => setRotation(prev => (prev + 90) % 360);
@@ -185,7 +359,7 @@ const EnhancedPdfViewer = ({
 
   return (
     <div ref={containerRef} className={`border border-stone-200 rounded-lg overflow-hidden ${className}`}>
-      {/* PDF Controls - Simplified without progress */}
+      {/* PDF Controls */}
       <div className="bg-stone-50 border-b border-stone-200 p-3 flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <Button
@@ -230,26 +404,20 @@ const EnhancedPdfViewer = ({
         </div>
       </div>
       
-      {/* PDF Viewer - Made scrollable */}
+      {/* PDF Viewer - Continuous scrolling through all pages */}
       <div
         ref={scrollContainerRef}
         className="bg-stone-100 overflow-auto"
         style={{ height: isFullscreen ? 'calc(100vh - 80px)' : '700px' }}
       >
-        <div className="flex justify-center p-4">
-          <div className="bg-white shadow-lg relative">
-            <canvas ref={canvasRef} className="max-w-full h-auto" />
-            {pageRendering && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
-              </div>
-            )}
-          </div>
+        <div ref={pagesContainerRef} className="p-4">
+          {/* Pages will be dynamically inserted here */}
         </div>
       </div>
     </div>
   );
 };
+
 
 export const ReadBook = () => {
   const { user } = useUser();
