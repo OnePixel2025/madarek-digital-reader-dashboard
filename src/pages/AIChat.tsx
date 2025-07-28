@@ -79,8 +79,7 @@ export const AIChat = () => {
           title,
           book_id,
           last_message_preview,
-          updated_at,
-          books!inner(title)
+          updated_at
         `)
         .eq('user_id', user.id)
         .order('updated_at', { ascending: false })
