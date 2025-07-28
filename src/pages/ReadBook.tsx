@@ -40,7 +40,7 @@ const EnhancedPdfViewer = ({
 }) => {
   const containerRef = useRef(null);
   const scrollContainerRef = useRef(null);
-  const pagesContainerRef = useRef(null);
+  const canvasRef = useRef(null);
   const [scale, setScale] = useState(1.2);
   const [rotation, setRotation] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -48,16 +48,7 @@ const EnhancedPdfViewer = ({
   const [error, setError] = useState(null);
   const [pdfLib, setPdfLib] = useState(null);
   const [pdfDoc, setPdfDoc] = useState(null);
-  const [renderedPages, setRenderedPages] = useState(new Set());
-  const [pageElements, setPageElements] = useState(new Map());
-  const [isScrolling, setIsScrolling] = useState(false);
-  const [renderingPages, setRenderingPages] = useState(new Set());
-  const renderTasksRef = useRef(new Map());
-  const renderQueueRef = useRef([]);
-  const scrollTimeoutRef = useRef(null);
-  const canvasLocksRef = useRef(new Map());
-  const renderSerializerRef = useRef(null);
-  const isProcessingQueueRef = useRef(false);
+  const [pageRendering, setPageRendering] = useState(false);
 
   // Load PDF.js from CDN
   useEffect(() => {
@@ -72,16 +63,10 @@ const EnhancedPdfViewer = ({
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
       setPdfLib(window.pdfjsLib);
     };
-    script.onerror = () => {
-      setError('Failed to load PDF.js library');
-      setIsLoading(false);
-    };
     document.head.appendChild(script);
 
     return () => {
-      if (document.head.contains(script)) {
-        document.head.removeChild(script);
-      }
+      document.head.removeChild(script);
     };
   }, []);
 
@@ -93,30 +78,13 @@ const EnhancedPdfViewer = ({
       try {
         setIsLoading(true);
         setError(null);
-        
-        // Cancel all existing render tasks and clear state
-        renderTasksRef.current.forEach((task) => {
-          try {
-            task.cancel();
-          } catch (e) {
-            // Ignore cancellation errors
-          }
-        });
-        renderTasksRef.current.clear();
-        renderQueueRef.current = [];
-        canvasLocksRef.current.clear();
-        isProcessingQueueRef.current = false;
-        
-        setRenderedPages(new Set());
-        setRenderingPages(new Set());
-        setPageElements(new Map());
 
         const pdf = await pdfLib.getDocument(pdfUrl).promise;
         setPdfDoc(pdf);
         setIsLoading(false);
       } catch (err) {
         console.error('Error loading PDF:', err);
-        setError(err.message || 'Failed to load PDF');
+        setError(err.message);
         setIsLoading(false);
       }
     };
@@ -124,462 +92,57 @@ const EnhancedPdfViewer = ({
     loadPDF();
   }, [pdfLib, pdfUrl]);
 
-  // Get currently visible pages
-  const getVisiblePages = useCallback(() => {
-    if (!scrollContainerRef.current || !pagesContainerRef.current) return [];
-
-    const scrollContainer = scrollContainerRef.current;
-    const scrollTop = scrollContainer.scrollTop;
-    const scrollBottom = scrollTop + scrollContainer.clientHeight;
-    const visiblePages = [];
-
-    pageElements.forEach((elements, pageNum) => {
-      const pageContainer = elements.container;
-      const pageTop = pageContainer.offsetTop;
-      const pageBottom = pageTop + pageContainer.offsetHeight;
-
-      if (pageBottom >= scrollTop && pageTop <= scrollBottom) {
-        visiblePages.push(pageNum);
-      }
-    });
-
-    return visiblePages.sort((a, b) => a - b);
-  }, [pageElements]);
-
-  // Create page containers when PDF is loaded
+  // Render current page
   useEffect(() => {
-    if (!pdfDoc || !pagesContainerRef.current) return;
+    if (!pdfDoc || !canvasRef.current || pageRendering) return;
 
-    const container = pagesContainerRef.current;
-    container.innerHTML = '';
-    
-    const newPageElements = new Map();
-
-    for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-      const pageContainer = document.createElement('div');
-      pageContainer.className = 'page-container mb-4 flex justify-center';
-      pageContainer.setAttribute('data-page', pageNum.toString());
-      
-      const pageWrapper = document.createElement('div');
-      pageWrapper.className = 'bg-white shadow-lg relative';
-      
-      const canvas = document.createElement('canvas');
-      canvas.className = 'max-w-full h-auto';
-      canvas.setAttribute('data-page', pageNum.toString()); // Add page identifier to canvas
-      
-      const loadingDiv = document.createElement('div');
-      loadingDiv.className = 'absolute inset-0 flex items-center justify-center bg-white bg-opacity-75';
-      loadingDiv.innerHTML = '<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>';
-      
-      pageWrapper.appendChild(canvas);
-      pageWrapper.appendChild(loadingDiv);
-      pageContainer.appendChild(pageWrapper);
-      container.appendChild(pageContainer);
-      
-      newPageElements.set(pageNum, { canvas, loadingDiv, container: pageContainer });
-    }
-    
-    setPageElements(newPageElements);
-    
-    // Queue initial visible pages for rendering with priority
-    setTimeout(() => {
-      const visiblePages = getVisiblePages();
-      visiblePages.forEach(pageNum => {
-        queuePageRenderRef.current?.(pageNum, true); // Priority for initially visible pages
-      });
-    }, 150);
-  }, [pdfDoc, totalPages, getVisiblePages]);
-
-  // Enhanced task cancellation with canvas lock management
-  const cancelRenderTask = useCallback((pageNum) => {
-    const existingTask = renderTasksRef.current.get(pageNum);
-    if (existingTask) {
+    const renderPage = async () => {
+      setPageRendering(true);
       try {
-        existingTask.cancel();
-      } catch (e) {
-        // Ignore cancellation errors - task might already be completed
-      }
-      renderTasksRef.current.delete(pageNum);
-    }
-    
-    // Release canvas lock
-    canvasLocksRef.current.delete(pageNum);
-    
-    // Remove from rendering pages
-    setRenderingPages(prev => {
-      const newSet = new Set(prev);
-      newSet.delete(pageNum);
-      return newSet;
-    });
-  }, []);
+        const page = await pdfDoc.getPage(currentPage);
+        const canvas = canvasRef.current;
+        const context = canvas.getContext('2d');
+        const viewport = page.getViewport({ scale, rotation });
 
-  // Create a render promise with timeout and proper cleanup
-  const createRenderPromise = useCallback((page, canvas, context, viewport, pageNum) => {
-    return new Promise<void>((resolve, reject) => {
-      let isCompleted = false;
-      
-      const cleanup = () => {
-        if (!isCompleted) {
-          isCompleted = true;
-          canvasLocksRef.current.delete(pageNum);
-          renderTasksRef.current.delete(pageNum);
-        }
-      };
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
 
-      // Set timeout for render operation
-      const timeoutId = setTimeout(() => {
-        cleanup();
-        reject(new Error(`Render timeout for page ${pageNum}`));
-      }, 30000); // 30 second timeout
+        context.clearRect(0, 0, canvas.width, canvas.height);
 
-      try {
-        const renderTask = page.render({
+        await page.render({
           canvasContext: context,
           viewport: viewport
-        });
-
-        renderTasksRef.current.set(pageNum, renderTask);
-
-        renderTask.promise
-          .then(() => {
-            if (!isCompleted) {
-              isCompleted = true;
-              clearTimeout(timeoutId);
-              cleanup();
-              resolve();
-            }
-          })
-          .catch((error) => {
-            if (!isCompleted) {
-              isCompleted = true;
-              clearTimeout(timeoutId);
-              cleanup();
-              if (error.name === 'RenderingCancelledException') {
-                resolve(); // Treat cancellation as success for cleanup purposes
-              } else {
-                reject(error);
-              }
-            }
-          });
-      } catch (error) {
-        isCompleted = true;
-        clearTimeout(timeoutId);
-        cleanup();
-        reject(error);
-      }
-    });
-  }, []);
-
-  // Canvas validation and preparation
-  const prepareCanvas = useCallback((pageNum) => {
-    const pageElement = pageElements.get(pageNum);
-    if (!pageElement) {
-      throw new Error(`Page elements not found for page ${pageNum}`);
-    }
-
-    const { canvas, loadingDiv } = pageElement;
-    if (!canvas || !canvas.getContext) {
-      throw new Error(`Invalid canvas for page ${pageNum}`);
-    }
-
-    // Check if canvas is locked
-    if (canvasLocksRef.current.has(pageNum)) {
-      throw new Error(`Canvas is locked for page ${pageNum}`);
-    }
-
-    const context = canvas.getContext('2d');
-    if (!context) {
-      throw new Error(`Failed to get canvas context for page ${pageNum}`);
-    }
-
-    return { canvas, context, loadingDiv };
-  }, [pageElements]);
-
-  // Forward declaration for queuePageRender
-  const queuePageRenderRef = useRef<((pageNum: number, priority?: boolean) => void) | null>(null);
-
-  // Serialized render queue processor with proper error handling
-  const processRenderQueue = useCallback(async () => {
-    // Prevent concurrent queue processing
-    if (isProcessingQueueRef.current || renderQueueRef.current.length === 0) {
-      return;
-    }
-
-    isProcessingQueueRef.current = true;
-
-    try {
-      while (renderQueueRef.current.length > 0) {
-        const pageNum = renderQueueRef.current.shift();
-        
-        // Skip if page is already rendered, being rendered, or invalid
-        if (!pageNum || renderingPages.has(pageNum) || renderedPages.has(pageNum)) {
-          continue;
-        }
-
-        try {
-          // Set rendering state
-          setRenderingPages(prev => new Set([...prev, pageNum]));
-
-          // Cancel any existing render task for this page
-          cancelRenderTask(pageNum);
-
-          // Acquire canvas lock
-          if (canvasLocksRef.current.has(pageNum)) {
-            throw new Error(`Canvas already locked for page ${pageNum}`);
-          }
-          canvasLocksRef.current.set(pageNum, true);
-
-          // Prepare canvas and validate
-          const { canvas, context, loadingDiv } = prepareCanvas(pageNum);
-          
-          // Get PDF page
-          const page = await pdfDoc.getPage(pageNum);
-          const viewport = page.getViewport({ scale, rotation });
-
-          // Setup canvas dimensions
-          canvas.height = viewport.height;
-          canvas.width = viewport.width;
-          context.clearRect(0, 0, canvas.width, canvas.height);
-
-          // Render page with timeout and proper error handling
-          await createRenderPromise(page, canvas, context, viewport, pageNum);
-
-          // Success - hide loading and mark as rendered
-          loadingDiv.style.display = 'none';
-          setRenderedPages(prev => new Set([...prev, pageNum]));
-
-        } catch (error) {
-          // Handle rendering errors
-          if (error.message?.includes('Canvas already locked')) {
-            console.warn(`Skipping page ${pageNum}: canvas locked`);
-          } else if (error.name !== 'RenderingCancelledException') {
-            console.error(`Error rendering page ${pageNum}:`, error);
-            
-            // Show error state on canvas if available
-            try {
-              const pageElement = pageElements.get(pageNum);
-              if (pageElement?.loadingDiv) {
-                pageElement.loadingDiv.innerHTML = 
-                  '<div class="text-red-500 text-sm">Render failed</div>';
-              }
-            } catch (e) {
-              // Ignore display errors
-            }
-          }
-        } finally {
-          // Always clean up rendering state
-          setRenderingPages(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(pageNum);
-            return newSet;
-          });
-          
-          // Release canvas lock
-          canvasLocksRef.current.delete(pageNum);
-          
-          // Clean up render task
-          renderTasksRef.current.delete(pageNum);
-        }
-
-        // Small delay between renders to prevent overwhelming the system
-        await new Promise(resolve => setTimeout(resolve, 5));
-      }
-    } finally {
-      isProcessingQueueRef.current = false;
-    }
-  }, [pdfDoc, pageElements, scale, rotation, renderedPages, renderingPages, cancelRenderTask, prepareCanvas, createRenderPromise]);
-
-  // Enhanced queue management with priority and deduplication
-  const queuePageRender = useCallback((pageNum: number, priority = false) => {
-    // Skip if already queued, rendering, or rendered
-    if (renderQueueRef.current.includes(pageNum) || 
-        renderingPages.has(pageNum) || 
-        renderedPages.has(pageNum)) {
-      return;
-    }
-
-    // Add to queue with optional priority
-    if (priority) {
-      renderQueueRef.current.unshift(pageNum); // Add to front
-    } else {
-      renderQueueRef.current.push(pageNum); // Add to back
-    }
-
-    // Start processing if not already running
-    if (!isProcessingQueueRef.current) {
-      processRenderQueue();
-    }
-  }, [renderingPages, renderedPages, processRenderQueue]);
-
-  // Clear all render tasks and queue
-  const clearAllRenderTasks = useCallback(() => {
-    // Cancel all active render tasks
-    renderTasksRef.current.forEach((task, pageNum) => {
-      try {
-        task.cancel();
-      } catch (e) {
-        // Ignore cancellation errors
-      }
-    });
-    
-    // Clear all state
-    renderTasksRef.current.clear();
-    renderQueueRef.current = [];
-    canvasLocksRef.current.clear();
-    isProcessingQueueRef.current = false;
-    
-    setRenderedPages(new Set());
-    setRenderingPages(new Set());
-  }, []);
-
-  // Update the ref
-  queuePageRenderRef.current = queuePageRender;
-
-  // Re-render all pages when scale or rotation changes with improved cleanup
-  useEffect(() => {
-    if (!pdfDoc || pageElements.size === 0) return;
-
-    // Clear all render tasks and reset state
-    clearAllRenderTasks();
-    
-    // Show loading indicators and clear canvases
-    pageElements.forEach(({ canvas, loadingDiv }) => {
-      try {
-        const context = canvas.getContext('2d');
-        if (context) {
-          context.clearRect(0, 0, canvas.width, canvas.height);
-        }
-        loadingDiv.style.display = 'flex';
-      } catch (e) {
-        console.warn('Error clearing canvas:', e);
-      }
-    });
-
-    // Queue visible pages with priority, then others
-    const renderVisiblePages = () => {
-      const visiblePages = getVisiblePages();
-      
-      // Queue visible pages with priority
-      visiblePages.forEach(pageNum => {
-        queuePageRender(pageNum, true); // Priority rendering for visible pages
-      });
-      
-      // Then queue remaining pages
-      for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-        if (!visiblePages.includes(pageNum)) {
-          queuePageRender(pageNum, false); // Normal priority for non-visible pages
-        }
+        }).promise;
+      } catch (err) {
+        console.error('Error rendering page:', err);
+        setError(err.message);
+      } finally {
+        setPageRendering(false);
       }
     };
 
-    // Small delay to ensure canvas contexts are ready
-    setTimeout(renderVisiblePages, 100);
-  }, [pdfDoc, pageElements, scale, rotation, totalPages, getVisiblePages, clearAllRenderTasks, queuePageRender]);
+    renderPage();
+  }, [pdfDoc, currentPage, scale, rotation]);
 
-  
-  // Update current page based on scroll position
-  const updateCurrentPageFromScroll = useCallback(() => {
-    const visiblePages = getVisiblePages();
-    if (visiblePages.length > 0) {
-      const scrollContainer = scrollContainerRef.current;
-      const scrollTop = scrollContainer.scrollTop;
-      const containerHeight = scrollContainer.clientHeight;
-      const centerPoint = scrollTop + containerHeight / 2;
-
-      let closestPage = visiblePages[0];
-      let closestDistance = Infinity;
-
-      visiblePages.forEach(pageNum => {
-        const pageContainer = pageElements.get(pageNum)?.container;
-        if (pageContainer) {
-          const pageCenter = pageContainer.offsetTop + pageContainer.offsetHeight / 2;
-          const distance = Math.abs(centerPoint - pageCenter);
-          if (distance < closestDistance) {
-            closestDistance = distance;
-            closestPage = pageNum;
-          }
-        }
-      });
-
-      if (closestPage !== currentPage) {
-        onPageChange(closestPage);
-      }
-    }
-  }, [getVisiblePages, pageElements, currentPage, onPageChange]);
-
-  // Handle scroll events
   useEffect(() => {
-    const scrollContainer = scrollContainerRef.current;
-    if (!scrollContainer) return;
+  const scrollContainer = scrollContainerRef.current;
+  if (!scrollContainer) return;
 
-    const handleScroll = () => {
-      // Calculate scroll progress
-      const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
-      const maxScroll = scrollHeight - clientHeight;
-      const scrollPercentage = maxScroll > 0 
-        ? Math.min(100, (scrollTop / maxScroll) * 100) 
-        : 100;
-      onScrollProgress?.(scrollPercentage);
-
-      // Update current page based on scroll position
-      setIsScrolling(true);
-      
-      // Clear previous timeout
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current);
-      }
-      
-      // Set new timeout to update current page after scrolling stops
-      scrollTimeoutRef.current = setTimeout(() => {
-        setIsScrolling(false);
-        updateCurrentPageFromScroll();
-        
-        // Queue visible pages for rendering after scroll stops
-        const visiblePages = getVisiblePages();
-        visiblePages.forEach(pageNum => {
-          queuePageRenderRef.current?.(pageNum, true); // Priority for newly visible pages
-        });
-      }, 150);
-    };
-
-    scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
-    return () => {
-      scrollContainer.removeEventListener('scroll', handleScroll);
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current);
-      }
-    };
-  }, [onScrollProgress, updateCurrentPageFromScroll]);
-
-  // Scroll to specific page when currentPage changes (but not during scrolling)
-  useEffect(() => {
-    if (isScrolling || !pageElements.has(currentPage)) return;
-
-    const pageContainer = pageElements.get(currentPage)?.container;
-    if (pageContainer && scrollContainerRef.current) {
-      const scrollContainer = scrollContainerRef.current;
-      const containerTop = scrollContainer.offsetTop;
-      const pageTop = pageContainer.offsetTop;
-      
-      scrollContainer.scrollTo({
-        top: pageTop - containerTop - 20, // 20px offset for better visibility
-        behavior: 'smooth'
-      });
-    }
-  }, [currentPage, pageElements, isScrolling]);
-
-  const handlePrevPage = () => {
-    if (currentPage > 1) {
-      onPageChange(currentPage - 1);
-    }
+  const handleScroll = () => {
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+    const maxScroll = scrollHeight - clientHeight;
+    const scrollPercentage = maxScroll > 0 
+      ? Math.min(100, (scrollTop / maxScroll) * 100) 
+      : 100;
+    onScrollProgress?.(scrollPercentage);
   };
 
-  const handleNextPage = () => {
-    if (currentPage < totalPages) {
-      onPageChange(currentPage + 1);
-    }
-  };
+  scrollContainer.addEventListener('scroll', handleScroll);
+  return () => scrollContainer.removeEventListener('scroll', handleScroll);
+}, [onScrollProgress]);
 
+  const handlePrevPage = () => currentPage > 1 && onPageChange(currentPage - 1);
+  const handleNextPage = () => currentPage < totalPages && onPageChange(currentPage + 1);
   const handleZoomIn = () => setScale(prev => Math.min(prev + 0.2, 3));
   const handleZoomOut = () => setScale(prev => Math.max(prev - 0.2, 0.5));
   const handleRotate = () => setRotation(prev => (prev + 90) % 360);
@@ -622,7 +185,7 @@ const EnhancedPdfViewer = ({
 
   return (
     <div ref={containerRef} className={`border border-stone-200 rounded-lg overflow-hidden ${className}`}>
-      {/* PDF Controls */}
+      {/* PDF Controls - Simplified without progress */}
       <div className="bg-stone-50 border-b border-stone-200 p-3 flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <Button
@@ -667,19 +230,27 @@ const EnhancedPdfViewer = ({
         </div>
       </div>
       
-      {/* PDF Viewer - Continuous scrolling through all pages */}
+      {/* PDF Viewer - Made scrollable */}
       <div
         ref={scrollContainerRef}
         className="bg-stone-100 overflow-auto"
         style={{ height: isFullscreen ? 'calc(100vh - 80px)' : '700px' }}
       >
-        <div ref={pagesContainerRef} className="p-4">
-          {/* Pages will be dynamically inserted here */}
+        <div className="flex justify-center p-4">
+          <div className="bg-white shadow-lg relative">
+            <canvas ref={canvasRef} className="max-w-full h-auto" />
+            {pageRendering && (
+              <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
 };
+
 
 
 export const ReadBook = () => {
