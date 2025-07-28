@@ -52,13 +52,6 @@
     --sidebar-border: 220 13% 91%;
 
     --sidebar-ring: 217.2 91.2% 59.8%;
-
-    /* Gradient colors for hero section */
-    --gradient-start: 84 100% 85%;
-    --gradient-mid-1: 82 90% 70%;
-    --gradient-mid-2: 150 80% 45%;
-    --gradient-mid-3: 150 90% 25%;
-    --gradient-end: 150 100% 8%;
   }
 
   .dark {
