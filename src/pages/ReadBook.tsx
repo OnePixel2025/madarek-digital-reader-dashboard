@@ -119,6 +119,28 @@ const EnhancedPdfViewer = ({
     loadPDF();
   }, [pdfLib, pdfUrl]);
 
+  // Get currently visible pages
+  const getVisiblePages = useCallback(() => {
+    if (!scrollContainerRef.current || !pagesContainerRef.current) return [];
+
+    const scrollContainer = scrollContainerRef.current;
+    const scrollTop = scrollContainer.scrollTop;
+    const scrollBottom = scrollTop + scrollContainer.clientHeight;
+    const visiblePages = [];
+
+    pageElements.forEach((elements, pageNum) => {
+      const pageContainer = elements.container;
+      const pageTop = pageContainer.offsetTop;
+      const pageBottom = pageTop + pageContainer.offsetHeight;
+
+      if (pageBottom >= scrollTop && pageTop <= scrollBottom) {
+        visiblePages.push(pageNum);
+      }
+    });
+
+    return visiblePages.sort((a, b) => a - b);
+  }, [pageElements]);
+
   // Create page containers when PDF is loaded
   useEffect(() => {
     if (!pdfDoc || !pagesContainerRef.current) return;
@@ -262,28 +284,6 @@ const EnhancedPdfViewer = ({
       processRenderQueue();
     }
   }, [renderingPages, renderedPages, processRenderQueue]);
-
-  // Get currently visible pages
-  const getVisiblePages = useCallback(() => {
-    if (!scrollContainerRef.current || !pagesContainerRef.current) return [];
-
-    const scrollContainer = scrollContainerRef.current;
-    const scrollTop = scrollContainer.scrollTop;
-    const scrollBottom = scrollTop + scrollContainer.clientHeight;
-    const visiblePages = [];
-
-    pageElements.forEach((elements, pageNum) => {
-      const pageContainer = elements.container;
-      const pageTop = pageContainer.offsetTop;
-      const pageBottom = pageTop + pageContainer.offsetHeight;
-
-      if (pageBottom >= scrollTop && pageTop <= scrollBottom) {
-        visiblePages.push(pageNum);
-      }
-    });
-
-    return visiblePages.sort((a, b) => a - b);
-  }, [pageElements]);
 
   // Re-render all pages when scale or rotation changes
   useEffect(() => {
