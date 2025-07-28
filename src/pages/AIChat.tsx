@@ -9,6 +9,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { AlertCircle } from 'lucide-react';
 
 interface ChatMessage {
   id: string;
@@ -46,24 +48,78 @@ export const AIChat = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(conversationId);
+  const [effectiveBookId, setEffectiveBookId] = useState<string | null>(bookId);
 
-  // Fetch book details if bookId is provided
-  const { data: book } = useQuery({
-    queryKey: ['book-details', bookId],
+  // Fetch the last read book when no bookId is provided
+  const { data: lastReadBook } = useQuery({
+    queryKey: ['last-read-book', user?.id],
     queryFn: async () => {
-      if (!bookId) return null;
+      if (!user?.id || bookId) return null; // Only fetch if no bookId is provided
+      
+      try {
+        const { data, error } = await supabase
+          .from('book_progress')
+          .select(`
+            book_id,
+            last_read_at,
+            books!inner(id, title, author)
+          `)
+          .eq('user_id', user.id)
+          .order('last_read_at', { ascending: false })
+          .limit(1);
+        
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+          return {
+            id: data[0].books.id,
+            title: data[0].books.title,
+            author: data[0].books.author
+          } as BookContext;
+        }
+        
+        return null;
+      } catch (error) {
+        console.error('Error fetching last read book:', error);
+        return null;
+      }
+    },
+    enabled: !!user?.id && !bookId,
+    retry: 1
+  });
+
+  // Update effective book ID when last read book is fetched
+  useEffect(() => {
+    if (!bookId && lastReadBook) {
+      setEffectiveBookId(lastReadBook.id);
+      
+      // Update URL to include the last read book
+      const newSearchParams = new URLSearchParams(searchParams);
+      newSearchParams.set('bookId', lastReadBook.id);
+      setSearchParams(newSearchParams);
+    }
+  }, [lastReadBook, bookId, searchParams, setSearchParams]);
+
+  // Fetch book details if bookId is provided or use last read book
+  const { data: book } = useQuery({
+    queryKey: ['book-details', effectiveBookId],
+    queryFn: async () => {
+      if (!effectiveBookId) return null;
       
       const { data, error } = await supabase
         .from('books')
         .select('id, title, author')
-        .eq('id', bookId)
+        .eq('id', effectiveBookId)
         .single();
       
       if (error) throw error;
       return data as BookContext;
     },
-    enabled: !!bookId
+    enabled: !!effectiveBookId
   });
+
+  // Determine if we should show the "no book selected" notification
+  const showNoBookNotification = !bookId && !lastReadBook && user?.id;
 
   // Fetch recent conversations - FIXED
   const { data: conversations = [], refetch: refetchConversations } = useQuery({
@@ -395,9 +451,20 @@ export const AIChat = () => {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
-      {/* Chat Interface */}
-      <div className="lg:col-span-2 flex flex-col">
+    <div className="space-y-4">
+      {/* No Book Selected Notification */}
+      {showNoBookNotification && (
+        <Alert className="border-orange-200 bg-orange-50">
+          <AlertCircle className="h-4 w-4 text-orange-600" />
+          <AlertDescription className="text-orange-800">
+            No book selected and no recent reading history found. Please upload a book or select one from your library to start chatting.
+          </AlertDescription>
+        </Alert>
+      )}
+      
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+        {/* Chat Interface */}
+        <div className="lg:col-span-2 flex flex-col">
         <Card className="border-stone-200 flex-1 flex flex-col">
           <CardHeader className="border-b border-stone-200">
             <CardTitle className="text-stone-800 flex items-center gap-2">
@@ -616,6 +683,7 @@ export const AIChat = () => {
           </CardContent>
         </Card>
       </div>
+    </div>
     </div>
   );
 };
