@@ -470,7 +470,7 @@ export const AIChat = () => {
             <CardTitle className="text-stone-800 flex items-center gap-2">
               <Bot className="w-5 h-5 text-emerald-600" />
               AI Reading Assistant
-              <span className="text-xl">{book ? (book.title, book.author) : ""}</span>
+              <span className="text-xl">{book ? book.title : ""}</span>
               {isVoiceMode && (
                 <span className="text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
                   Voice Mode
