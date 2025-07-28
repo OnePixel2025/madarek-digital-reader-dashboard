@@ -140,6 +140,16 @@ const EnhancedPdfViewer = ({
 
     return visiblePages.sort((a, b) => a - b);
   }, [pageElements]);
+  
+  // Add page to render queue
+  const queuePageRender = useCallback((pageNum) => {
+    if (!renderQueueRef.current.includes(pageNum) && 
+        !renderingPages.has(pageNum) && 
+        !renderedPages.has(pageNum)) {
+      renderQueueRef.current.push(pageNum);
+      processRenderQueue();
+    }
+  }, [renderingPages, renderedPages, processRenderQueue]);
 
   // Create page containers when PDF is loaded
   useEffect(() => {
@@ -274,16 +284,6 @@ const EnhancedPdfViewer = ({
     // Continue processing queue after a small delay
     setTimeout(processRenderQueue, 10);
   }, [pdfDoc, pageElements, scale, rotation, renderedPages, renderingPages, cancelRenderTask]);
-
-  // Add page to render queue
-  const queuePageRender = useCallback((pageNum) => {
-    if (!renderQueueRef.current.includes(pageNum) && 
-        !renderingPages.has(pageNum) && 
-        !renderedPages.has(pageNum)) {
-      renderQueueRef.current.push(pageNum);
-      processRenderQueue();
-    }
-  }, [renderingPages, renderedPages, processRenderQueue]);
 
   // Re-render all pages when scale or rotation changes
   useEffect(() => {
