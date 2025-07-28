@@ -160,6 +160,7 @@ export const AIChat = () => {
   useEffect(() => {
     if (existingMessages && existingMessages.length > 0) {
       setChatMessages(existingMessages);
+      console.log(existingMessages)
     }
   }, [existingMessages]);
 
