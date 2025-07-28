@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { MessageCircle, Mic, MicOff, Send, Upload, Bot, User as UserIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -66,53 +65,109 @@ export const AIChat = () => {
     enabled: !!bookId
   });
 
-  // Fetch recent conversations
+  // Fetch recent conversations - FIXED
   const { data: conversations = [], refetch: refetchConversations } = useQuery({
     queryKey: ['recent-conversations', user?.id],
     queryFn: async () => {
       if (!user?.id) return [];
       
-      const { data, error } = await supabase
-        .from('conversations')
-        .select(`
-          id,
-          title,
-          book_id,
-          last_message_preview,
-          updated_at
-        `)
-        .eq('user_id', user.id)
-        .order('updated_at', { ascending: false })
-        .limit(10);
-      
-      if (error) throw error;
-      return data as Conversation[];
+      try {
+        // First, get the conversations
+        const { data: conversationsData, error: conversationsError } = await supabase
+          .from('conversations')
+          .select('id, title, book_id, last_message_preview, updated_at')
+          .eq('user_id', user.id)
+          .order('updated_at', { ascending: false })
+          .limit(10);
+        
+        if (conversationsError) {
+          console.error('Conversations query error:', conversationsError);
+          throw conversationsError;
+        }
+
+        // If no conversations, return empty array
+        if (!conversationsData || conversationsData.length === 0) {
+          return [];
+        }
+
+        // Get book titles for conversations that have book_id
+        const conversationsWithBooks = await Promise.all(
+          conversationsData.map(async (conversation) => {
+            if (conversation.book_id) {
+              try {
+                const { data: bookData, error: bookError } = await supabase
+                  .from('books')
+                  .select('title')
+                  .eq('id', conversation.book_id)
+                  .single();
+                
+                if (bookError) {
+                  console.warn(`Could not fetch book for conversation ${conversation.id}:`, bookError);
+                }
+                
+                return {
+                  ...conversation,
+                  book_title: bookData?.title || null
+                };
+              } catch (error) {
+                console.warn(`Error fetching book for conversation ${conversation.id}:`, error);
+                return conversation;
+              }
+            }
+            return conversation;
+          })
+        );
+
+        return conversationsWithBooks as Conversation[];
+      } catch (error) {
+        console.error('Error fetching conversations:', error);
+        throw error;
+      }
     },
-    enabled: !!user?.id
+    enabled: !!user?.id,
+    retry: 2,
+    retryDelay: 1000
   });
 
-  // Fetch conversation messages if conversationId is provided
+  // Fetch conversation messages if conversationId is provided - FIXED
   const { data: existingMessages } = useQuery({
     queryKey: ['conversation-messages', currentConversationId],
     queryFn: async () => {
       if (!currentConversationId || !user?.id) return [];
       
-      const { data, error } = await supabase
-        .from('chat_messages')
-        .select('*')
-        .eq('conversation_id', currentConversationId)
-        .order('created_at', { ascending: true });
-      
-      if (error) throw error;
-      
-      return data.map(msg => ({
-        id: msg.id,
-        type: msg.role === 'user' ? 'user' : 'bot',
-        message: msg.content,
-        timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      })) as ChatMessage[];
+      try {
+        const { data, error } = await supabase
+          .from('chat_messages')
+          .select('id, role, content, created_at')
+          .eq('conversation_id', currentConversationId)
+          .order('created_at', { ascending: true });
+        
+        if (error) {
+          console.error('Chat messages query error:', error);
+          throw error;
+        }
+
+        if (!data || data.length === 0) {
+          return [];
+        }
+        
+        return data.map(msg => ({
+          id: msg.id,
+          type: msg.role === 'user' ? 'user' as const : 'bot' as const,
+          message: msg.content,
+          timestamp: new Date(msg.created_at).toLocaleTimeString([], { 
+            hour: '2-digit', 
+            minute: '2-digit' 
+          })
+        })) as ChatMessage[];
+      } catch (error) {
+        console.error('Error fetching conversation messages:', error);
+        throw error;
+      }
     },
-    enabled: !!currentConversationId && !!user?.id
+    enabled: !!currentConversationId && !!user?.id,
+    retry: 2,
+    retryDelay: 1000
   });
 
   // Create new conversation mutation
@@ -152,6 +207,19 @@ export const AIChat = () => {
         });
       
       if (error) throw error;
+      
+      // Update conversation's last_message_preview and updated_at
+      const { error: updateError } = await supabase
+        .from('conversations')
+        .update({
+          last_message_preview: content.substring(0, 100),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', conversationId);
+      
+      if (updateError) {
+        console.warn('Could not update conversation preview:', updateError);
+      }
     }
   });
 
@@ -159,7 +227,7 @@ export const AIChat = () => {
   useEffect(() => {
     if (existingMessages && existingMessages.length > 0) {
       setChatMessages(existingMessages);
-      console.log(existingMessages)
+      console.log('Loaded existing messages:', existingMessages);
     }
   }, [existingMessages]);
 
