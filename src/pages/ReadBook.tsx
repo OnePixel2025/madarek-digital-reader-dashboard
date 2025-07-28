@@ -794,8 +794,8 @@ export const ReadBook = () => {
 
       console.log('Processed text ready, generating audio...');
       
-      // Use first 5000 characters of processed text for TTS
-      const textForTTS = processedText.substring(0, 5000);
+      // Use first 500 characters of processed text for TTS
+      const textForTTS = processedText.substring(0, 500);
       
       const { data: ttsData, error: ttsError } = await supabase.functions.invoke('generate-book-tts', {
         body: { 
