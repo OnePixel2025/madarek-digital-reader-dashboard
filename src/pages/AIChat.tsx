@@ -51,11 +51,14 @@ export const AIChat = () => {
   const [effectiveBookId, setEffectiveBookId] = useState<string | null>(bookId);
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
 
+  // Track if new conversation mode is active (bypass auto-loading)
+  const [isNewConversationMode, setIsNewConversationMode] = useState(false);
+
   // Fetch the last read book when no bookId is provided
   const { data: lastReadBook } = useQuery({
     queryKey: ['last-read-book', user?.id],
     queryFn: async () => {
-      if (!user?.id || bookId) return null; // Only fetch if no bookId is provided
+      if (!user?.id || bookId || isNewConversationMode) return null; // Skip if in new conversation mode
       
       try {
         const { data, error } = await supabase
@@ -85,13 +88,13 @@ export const AIChat = () => {
         return null;
       }
     },
-    enabled: !!user?.id && !bookId,
+    enabled: !!user?.id && !bookId && !isNewConversationMode,
     retry: 1
   });
 
   // Update effective book ID when last read book is fetched
   useEffect(() => {
-    if (!bookId && lastReadBook) {
+    if (!bookId && lastReadBook && !isNewConversationMode) {
       setEffectiveBookId(lastReadBook.id);
       
       // Update URL to include the last read book
@@ -99,7 +102,7 @@ export const AIChat = () => {
       newSearchParams.set('bookId', lastReadBook.id);
       setSearchParams(newSearchParams);
     }
-  }, [lastReadBook, bookId, searchParams, setSearchParams]);
+  }, [lastReadBook, bookId, searchParams, setSearchParams, isNewConversationMode]);
 
   // Fetch recent conversations - FIXED
   const { data: conversations = [], refetch: refetchConversations } = useQuery({
@@ -251,7 +254,7 @@ export const AIChat = () => {
   });
 
   // Determine if we should show the "no book selected" notification
-  const showNoBookNotification = !bookId && !lastReadBook && user?.id;
+  const showNoBookNotification = (!bookId && !lastReadBook && user?.id) || isNewConversationMode;
 
   // Fetch conversation messages if conversationId is provided - FIXED
   const { data: existingMessages } = useQuery({
@@ -482,18 +485,19 @@ export const AIChat = () => {
     setSearchParams(newSearchParams);
     setCurrentConversationId(conversation.id);
     setCurrentConversation(conversation);
+    setIsNewConversationMode(false); // Exit new conversation mode
   };
 
   const handleStartNewConversation = () => {
+    // Reset all relevant states
     setCurrentConversationId(null);
     setCurrentConversation(null);
     setChatMessages([]);
-    const newSearchParams = new URLSearchParams();
-    if (bookId) {
-      newSearchParams.set('bookId', bookId);
-    }
-    // Remove conversationId from URL to start fresh
-    setSearchParams(newSearchParams);
+    setEffectiveBookId(null);
+    setIsNewConversationMode(true);
+    
+    // Completely clear URL parameters
+    setSearchParams(new URLSearchParams());
   };
 
   const toggleVoiceMode = () => {
