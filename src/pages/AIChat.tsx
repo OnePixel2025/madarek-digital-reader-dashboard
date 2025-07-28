@@ -49,6 +49,7 @@ export const AIChat = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(conversationId);
   const [effectiveBookId, setEffectiveBookId] = useState<string | null>(bookId);
+  const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
 
   // Fetch the last read book when no bookId is provided
   const { data: lastReadBook } = useQuery({
@@ -99,27 +100,6 @@ export const AIChat = () => {
       setSearchParams(newSearchParams);
     }
   }, [lastReadBook, bookId, searchParams, setSearchParams]);
-
-  // Fetch book details if bookId is provided or use last read book
-  const { data: book } = useQuery({
-    queryKey: ['book-details', effectiveBookId],
-    queryFn: async () => {
-      if (!effectiveBookId) return null;
-      
-      const { data, error } = await supabase
-        .from('books')
-        .select('id, title, author')
-        .eq('id', effectiveBookId)
-        .single();
-      
-      if (error) throw error;
-      return data as BookContext;
-    },
-    enabled: !!effectiveBookId
-  });
-
-  // Determine if we should show the "no book selected" notification
-  const showNoBookNotification = !bookId && !lastReadBook && user?.id;
 
   // Fetch recent conversations - FIXED
   const { data: conversations = [], refetch: refetchConversations } = useQuery({
@@ -185,6 +165,24 @@ export const AIChat = () => {
     retryDelay: 1000
   });
 
+  // Update current conversation when conversationId changes
+  useEffect(() => {
+    if (conversationId && conversations.length > 0) {
+      const conversation = conversations.find(conv => conv.id === conversationId);
+      if (conversation) {
+        setCurrentConversation(conversation);
+        setCurrentConversationId(conversation.id);
+        
+        // Update effective book ID from conversation's book_id
+        if (conversation.book_id) {
+          setEffectiveBookId(conversation.book_id);
+        }
+      }
+    } else {
+      setCurrentConversation(null);
+    }
+  }, [conversationId, conversations]);
+
   // Auto-load the most recent conversation for the selected book
   useEffect(() => {
     if (bookId && !conversationId && conversations.length > 0 && !currentConversationId) {
@@ -193,6 +191,7 @@ export const AIChat = () => {
       if (bookConversation) {
         console.log('Auto-loading conversation for book:', bookConversation);
         setCurrentConversationId(bookConversation.id);
+        setCurrentConversation(bookConversation);
         
         // Update URL to include the conversation ID
         const newSearchParams = new URLSearchParams(searchParams);
@@ -201,6 +200,27 @@ export const AIChat = () => {
       }
     }
   }, [bookId, conversationId, conversations, currentConversationId, searchParams, setSearchParams]);
+
+  // Fetch book details - Updated to use effectiveBookId or current conversation's book_id
+  const { data: book } = useQuery({
+    queryKey: ['book-details', effectiveBookId],
+    queryFn: async () => {
+      if (!effectiveBookId) return null;
+      
+      const { data, error } = await supabase
+        .from('books')
+        .select('id, title, author')
+        .eq('id', effectiveBookId)
+        .single();
+      
+      if (error) throw error;
+      return data as BookContext;
+    },
+    enabled: !!effectiveBookId
+  });
+
+  // Determine if we should show the "no book selected" notification
+  const showNoBookNotification = !bookId && !lastReadBook && user?.id;
 
   // Fetch conversation messages if conversationId is provided - FIXED
   const { data: existingMessages } = useQuery({
@@ -264,6 +284,7 @@ export const AIChat = () => {
     },
     onSuccess: (data) => {
       setCurrentConversationId(data.id);
+      setCurrentConversation(data);
       queryClient.invalidateQueries({ queryKey: ['recent-conversations'] });
     }
   });
@@ -425,13 +446,16 @@ export const AIChat = () => {
     newSearchParams.set('conversationId', conversation.id);
     if (conversation.book_id) {
       newSearchParams.set('bookId', conversation.book_id);
+      setEffectiveBookId(conversation.book_id); // Update effective book ID immediately
     }
     setSearchParams(newSearchParams);
     setCurrentConversationId(conversation.id);
+    setCurrentConversation(conversation);
   };
 
   const handleStartNewConversation = () => {
     setCurrentConversationId(null);
+    setCurrentConversation(null);
     setChatMessages([]);
     const newSearchParams = new URLSearchParams();
     if (bookId) {
@@ -467,10 +491,12 @@ export const AIChat = () => {
         <div className="lg:col-span-2 flex flex-col">
         <Card className="border-stone-200 flex-1 flex flex-col">
           <CardHeader className="border-b border-stone-200">
-            <CardTitle className="text-stone-800 flex items-center gap-2">
-              <Bot className="w-5 h-5 text-emerald-600" />
+            <CardTitle className="text-stone-800 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <Bot className="w-5 h-5 text-emerald-600" />
               AI Reading Assistant
-              <br /> <span className="text-xl text-left">{book ? book.title : ""}</span>
+              </div>
+              <span className="text-lg">{book ? book.title : ""}</span>
               {isVoiceMode && (
                 <span className="text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
                   Voice Mode
