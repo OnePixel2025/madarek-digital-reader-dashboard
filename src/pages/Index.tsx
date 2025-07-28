@@ -1,8 +1,8 @@
 
-import { MadarikLanding } from './MadarikLanding';
+import { Dashboard } from './Dashboard';
 
 const Index = () => {
-  return <MadarikLanding />;
+  return <Dashboard />;
 };
 
 export default Index;

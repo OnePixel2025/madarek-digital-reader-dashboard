@@ -61,18 +61,7 @@ export default {
 					'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
 					border: 'hsl(var(--sidebar-border))',
 					ring: 'hsl(var(--sidebar-ring))'
-				},
-				// Madarik Brand Colors
-				sandstone: 'hsl(var(--color-sandstone))',
-				emerald: 'hsl(var(--color-emerald))',
-				gold: 'hsl(var(--color-gold))',
-				offwhite: 'hsl(var(--color-offwhite))',
-				charcoal: 'hsl(var(--color-charcoal))'
-			},
-			fontFamily: {
-				arabic: ['Cairo', 'Tajawal', 'system-ui', 'sans-serif'],
-				heading: ['Montserrat', 'system-ui', 'sans-serif'],
-				body: ['Poppins', 'system-ui', 'sans-serif'],
+				}
 			},
 			borderRadius: {
 				lg: 'var(--radius)',
