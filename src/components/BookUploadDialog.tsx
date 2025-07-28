@@ -6,9 +6,18 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, FileText } from 'lucide-react';
+import { Upload, FileText, Loader2 } from 'lucide-react';
+
+// Extend Window interface for PDF.js and Tesseract
+declare global {
+  interface Window {
+    pdfjsLib?: any;
+    Tesseract?: any;
+  }
+}
 
 interface BookUploadDialogProps {
   open: boolean;
@@ -29,6 +38,9 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isExtractingText, setIsExtractingText] = useState(false);
+  const [extractionProgress, setExtractionProgress] = useState(0);
+  const [extractionStatus, setExtractionStatus] = useState('');
   const { toast } = useToast();
 
   const handleInputChange = (field: string, value: string) => {
@@ -103,6 +115,188 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
     return data.path;
   };
 
+  /**
+   * Load required OCR libraries (PDF.js and Tesseract.js)
+   */
+  const loadOCRLibraries = async (): Promise<void> => {
+    return new Promise<void>((resolve, reject) => {
+      // Check if libraries are already loaded
+      if (window.pdfjsLib && window.Tesseract) {
+        // Set PDF.js worker if needed
+        if (!window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 
+            'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        }
+        resolve();
+        return;
+      }
+
+      let scriptsLoaded = 0;
+      const totalScripts = 2;
+      
+      const checkComplete = () => {
+        scriptsLoaded++;
+        if (scriptsLoaded === totalScripts) {
+          // Set PDF.js worker
+          if (window.pdfjsLib) {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 
+              'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          }
+          resolve();
+        }
+      };
+      
+      // Load PDF.js
+      const pdfScript = document.createElement('script');
+      pdfScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      pdfScript.onload = checkComplete;
+      pdfScript.onerror = () => reject(new Error('Failed to load PDF.js'));
+      document.head.appendChild(pdfScript);
+      
+      // Load Tesseract.js
+      const tesseractScript = document.createElement('script');
+      tesseractScript.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js';
+      tesseractScript.onload = checkComplete;
+      tesseractScript.onerror = () => reject(new Error('Failed to load Tesseract.js'));
+      document.head.appendChild(tesseractScript);
+    });
+  };
+
+  /**
+   * Extract text from uploaded PDF using OCR
+   */
+  const extractTextFromPDF = async (bookId: string, filePath: string, language: string): Promise<void> => {
+    setIsExtractingText(true);
+    setExtractionProgress(0);
+    setExtractionStatus('Loading OCR libraries...');
+
+    try {
+      // Load required libraries
+      await loadOCRLibraries();
+
+      // Get language code for OCR
+      const ocrLanguage = language === "Arabic" ? "ara" : 'eng';
+      
+      // Create PDF URL
+      const pdfUrl = `https://ripsrvyzgvyvfisvcnwk.supabase.co/storage/v1/object/public/books/${filePath}`;
+
+      setExtractionStatus('Starting text extraction...');
+      
+      let extractedText = "";
+      let worker = null;
+      
+      try {
+        // Initialize Tesseract worker
+        setExtractionStatus('Initializing OCR engine...');
+        worker = await window.Tesseract.createWorker();
+        await worker.loadLanguage(ocrLanguage);
+        await worker.initialize(ocrLanguage);
+        
+        setExtractionStatus('Loading PDF document...');
+        
+        // Load PDF document
+        const pdf = await window.pdfjsLib.getDocument(pdfUrl).promise;
+        const totalPages = pdf.numPages;
+        
+        setExtractionStatus(`Processing ${totalPages} pages...`);
+        
+        let processedPages = 0;
+        
+        // Process each page
+        for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+          setExtractionStatus(`Processing page ${pageNum}/${totalPages}`);
+          
+          try {
+            // Get PDF page
+            const page = await pdf.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 3 }); // High quality
+            
+            // Create canvas for rendering
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            
+            // Render PDF page to canvas
+            await page.render({
+              canvasContext: context,
+              viewport: viewport,
+            }).promise;
+            
+            // Perform OCR on the canvas
+            const { data: { text } } = await worker.recognize(canvas);
+            
+            // Add page text to result with separator
+            if (text.trim()) {
+              extractedText += `\n--- Page ${pageNum} ---\n${text.trim()}\n`;
+            }
+            
+            // Clean up canvas
+            canvas.remove();
+            
+          } catch (pageError) {
+            console.warn(`Failed to process page ${pageNum}:`, pageError);
+            extractedText += `\n--- Page ${pageNum} (Error) ---\nFailed to extract text from this page\n`;
+          }
+          
+          // Update progress
+          processedPages++;
+          const progress = (processedPages / totalPages) * 100;
+          setExtractionProgress(progress);
+        }
+        
+        // Clean up worker
+        await worker.terminate();
+        worker = null;
+        
+        const finalText = extractedText.trim();
+        
+        // Save extracted text to database
+        const { error: insertError } = await supabase
+          .from('book_text_extractions')
+          .upsert({
+            book_id: bookId,
+            extracted_text: finalText,
+            extraction_method: 'ocr-tesseract',
+            page_count: totalPages,
+            needs_ocr: false,
+            ocr_status: 'completed'
+          }, {
+            onConflict: 'book_id,extraction_method'
+          });
+
+        if (insertError) {
+          console.error('Error saving extracted text:', insertError);
+          throw new Error(`Failed to save extracted text: ${insertError.message}`);
+        }
+
+        console.log('Text extraction completed:', {
+          textLength: finalText.length,
+          pageCount: totalPages
+        });
+        
+        setExtractionStatus('Text extraction completed!');
+        
+      } catch (error) {
+        // Clean up worker on error
+        if (worker) {
+          try {
+            await worker.terminate();
+          } catch (cleanupError) {
+            console.warn('Failed to cleanup worker:', cleanupError);
+          }
+        }
+        throw error;
+      }
+      
+    } catch (error) {
+      console.error('Error in text extraction:', error);
+      throw error;
+    } finally {
+      setIsExtractingText(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -160,9 +354,21 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
 
       console.log('Book inserted successfully:', insertedBook);
 
+      const bookId = insertedBook[0].id;
+
       toast({
         title: "Success",
-        description: "Book uploaded successfully",
+        description: "Book uploaded successfully! Starting text extraction...",
+      });
+
+      // Start text extraction in the background
+      extractTextFromPDF(bookId, filePath, formData.language).catch((error) => {
+        console.error('Text extraction failed:', error);
+        toast({
+          title: "Text extraction failed",
+          description: "The book was uploaded but text extraction failed. You can try again later.",
+          variant: "destructive",
+        });
       });
 
       // Reset form
@@ -332,11 +538,23 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
             </div>
           </div>
 
+          {/* Text Extraction Progress */}
+          {isExtractingText && (
+            <div className="space-y-3 p-4 bg-stone-50 rounded-lg border">
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-sm font-medium">Extracting text from PDF...</span>
+              </div>
+              <Progress value={extractionProgress} className="w-full" />
+              <p className="text-xs text-stone-600">{extractionStatus}</p>
+            </div>
+          )}
+
           <div className="flex justify-end gap-3 pt-4">
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting || isExtractingText}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={isSubmitting || isExtractingText}>
               {isSubmitting ? 'Uploading...' : 'Upload Book'}
             </Button>
           </div>
