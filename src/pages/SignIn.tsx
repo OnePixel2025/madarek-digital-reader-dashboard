@@ -56,7 +56,7 @@ export const SignInPage = () => {
       <div className="hidden lg:block relative flex-1">
         <img
           className="absolute inset-0 h-full w-full object-cover"
-          src="https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80"
+          src="https://static.majalla.com/styles/1200xauto/public/2023-04/151347.jpg?VersionId=cV6XvQsqcNMLTP73KyFdse8hFGDIFjIu"
           alt="Learning environment"
         />
         <div className="absolute inset-0 bg-emerald-600 bg-opacity-20"></div>
