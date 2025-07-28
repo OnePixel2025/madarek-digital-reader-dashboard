@@ -1391,7 +1391,7 @@ export const ReadBook = () => {
               <Button 
                 variant="outline" 
                 className="w-full justify-start"
-                onClick={() => navigate(`/ai-chat/bookId=${selectedBookId}`)}
+                onClick={() => navigate(`/ai-chat?bookId=${selectedBookId}`)}
                 disabled={!selectedBookId}
               >
                 <MessageCircle className="w-4 h-4 mr-2" />
