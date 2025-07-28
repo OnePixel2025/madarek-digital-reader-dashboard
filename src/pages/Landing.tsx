@@ -8,7 +8,7 @@ import aboutUsImage from '@/assets/about-us-students.jpg';
 
 export const Landing = () => {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-blue-50 to-stone-50">
+    <div className="min-h-screen bg-gradient-to-b from-emerald-100 via-emerald-300 to-emerald-900">
       {/* Header */}
       <header className="container mx-auto px-6 py-8">
         <div className="flex items-center justify-between">
