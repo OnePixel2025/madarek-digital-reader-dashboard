@@ -56,7 +56,7 @@ export const SignUpPage = () => {
       <div className="hidden lg:block relative flex-1">
         <img
           className="absolute inset-0 h-full w-full object-cover"
-          src="https://images.unsplash.com/photo-1488590528505-98d2b5aba04b?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80"
+          src="https://static.majalla.com/2023-04/151434.jpg"
           alt="Digital learning"
         />
         <div className="absolute inset-0 bg-blue-600 bg-opacity-20"></div>
