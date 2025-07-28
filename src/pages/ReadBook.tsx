@@ -140,16 +140,6 @@ const EnhancedPdfViewer = ({
 
     return visiblePages.sort((a, b) => a - b);
   }, [pageElements]);
-  
-  // Add page to render queue
-  const queuePageRender = useCallback((pageNum) => {
-    if (!renderQueueRef.current.includes(pageNum) && 
-        !renderingPages.has(pageNum) && 
-        !renderedPages.has(pageNum)) {
-      renderQueueRef.current.push(pageNum);
-      processRenderQueue();
-    }
-  }, [renderingPages, renderedPages, processRenderQueue]);
 
   // Create page containers when PDF is loaded
   useEffect(() => {
@@ -334,6 +324,16 @@ const EnhancedPdfViewer = ({
     setTimeout(renderVisiblePages, 50);
   }, [pdfDoc, pageElements, scale, rotation, totalPages, getVisiblePages, queuePageRender]);
 
+  // Add page to render queue
+  const queuePageRender = useCallback((pageNum) => {
+    if (!renderQueueRef.current.includes(pageNum) && 
+        !renderingPages.has(pageNum) && 
+        !renderedPages.has(pageNum)) {
+      renderQueueRef.current.push(pageNum);
+      processRenderQueue();
+    }
+  }, [renderingPages, renderedPages, processRenderQueue]);
+  
   // Update current page based on scroll position
   const updateCurrentPageFromScroll = useCallback(() => {
     const visiblePages = getVisiblePages();
