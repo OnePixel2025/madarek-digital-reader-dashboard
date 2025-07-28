@@ -219,6 +219,37 @@ export const AIChat = () => {
     enabled: !!effectiveBookId
   });
 
+  // Fetch extracted text for the book
+  const { data: extractedText } = useQuery({
+    queryKey: ['book-extracted-text', effectiveBookId],
+    queryFn: async () => {
+      if (!effectiveBookId) return null;
+      
+      // Try to get processed text first, then fall back to raw OCR text
+      const { data: processedText } = await supabase
+        .from('book_text_extractions')
+        .select('extracted_text')
+        .eq('book_id', effectiveBookId)
+        .eq('extraction_method', 'processed')
+        .maybeSingle();
+        
+      if (processedText?.extracted_text) {
+        return processedText.extracted_text;
+      }
+      
+      // Fall back to raw OCR text if processed text not available
+      const { data: rawText } = await supabase
+        .from('book_text_extractions')
+        .select('extracted_text')
+        .eq('book_id', effectiveBookId)
+        .eq('extraction_method', 'ocr-tesseract')
+        .maybeSingle();
+        
+      return rawText?.extracted_text || null;
+    },
+    enabled: !!effectiveBookId
+  });
+
   // Determine if we should show the "no book selected" notification
   const showNoBookNotification = !bookId && !lastReadBook && user?.id;
 
@@ -402,7 +433,7 @@ export const AIChat = () => {
           bookContext: book ? {
             title: book.title,
             author: book.author,
-            excerpt: 'Book content not yet extracted' // TODO: Add extracted text
+            excerpt: extractedText || 'Book content not yet extracted'
           } : null,
           conversationHistory
         }
