@@ -507,7 +507,7 @@ export const AIChat = () => {
           
           <CardContent className="flex-1 flex flex-col p-0">
             {/* Messages */}
-            <div className="flex-1 p-6 space-y-4 overflow-y-auto max-h-[600px]">
+            <div className="flex-1 p-6 space-y-4 overflow-y-auto max-h-[500px]">
               {chatMessages.map((msg) => (
                 <div key={msg.id} className={`flex gap-3 ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
                   {msg.type === 'bot' && (
