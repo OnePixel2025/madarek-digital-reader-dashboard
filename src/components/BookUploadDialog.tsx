@@ -10,7 +10,6 @@ import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Upload, FileText, Loader2 } from 'lucide-react';
-import { TextProcessingStatus } from './TextProcessingStatus';
 
 // Extend Window interface for PDF.js and Tesseract
 declare global {
@@ -42,39 +41,7 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
   const [isExtractingText, setIsExtractingText] = useState(false);
   const [extractionProgress, setExtractionProgress] = useState(0);
   const [extractionStatus, setExtractionStatus] = useState('');
-  const [uploadedBookId, setUploadedBookId] = useState<string | null>(null);
   const { toast } = useToast();
-
-  const resetForm = () => {
-    setFormData({
-      title: '',
-      author: '',
-      description: '',
-      publication_year: '',
-      category: '',
-      language: 'Arabic',
-      page_count: '',
-      file_size_mb: ''
-    });
-    setSelectedFile(null);
-    setUploadedBookId(null);
-    setIsExtractingText(false);
-    setExtractionProgress(0);
-    setExtractionStatus('');
-  };
-
-  const handleClose = () => {
-    // Only allow closing if not currently uploading or extracting
-    if (!isSubmitting && !isExtractingText) {
-      resetForm();
-      onClose();
-    }
-  };
-
-  const handleSuccess = () => {
-    resetForm();
-    onSuccess();
-  };
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({
@@ -284,7 +251,7 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
         
         const finalText = extractedText.trim();
         
-        // Save raw extracted text to database first
+        // Save extracted text to database
         const { error: insertError } = await supabase
           .from('book_text_extractions')
           .upsert({
@@ -308,31 +275,7 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
           pageCount: totalPages
         });
         
-        setExtractionStatus('Starting AI text processing...');
-        
-        // Start background AI processing
-        try {
-          const { data: processResponse, error: processError } = await supabase
-            .functions
-            .invoke('process-extracted-text', {
-              body: { 
-                text: finalText,
-                bookId: bookId,
-                language: language 
-              }
-            });
-
-          if (processError) {
-            console.error('Error starting text processing:', processError);
-            setExtractionStatus('Text extraction completed! AI processing failed to start.');
-          } else {
-            console.log('Background text processing started:', processResponse);
-            setExtractionStatus('Text extraction completed! AI processing started in background.');
-          }
-        } catch (processError) {
-          console.error('Failed to start background processing:', processError);
-          setExtractionStatus('Text extraction completed! AI processing failed to start.');
-        }
+        setExtractionStatus('Text extraction completed!');
         
       } catch (error) {
         // Clean up worker on error
@@ -412,7 +355,6 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
       console.log('Book inserted successfully:', insertedBook);
 
       const bookId = insertedBook[0].id;
-      setUploadedBookId(bookId);
 
       toast({
         title: "Success",
@@ -428,6 +370,21 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
           variant: "destructive",
         });
       });
+
+      // Reset form
+      setFormData({
+        title: '',
+        author: '',
+        description: '',
+        publication_year: '',
+        category: '',
+        language: 'Arabic',
+        page_count: '',
+        file_size_mb: ''
+      });
+      setSelectedFile(null);
+
+      onSuccess();
     } catch (error) {
       console.error('Error in upload process:', error);
       toast({
@@ -593,31 +550,13 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
             </div>
           )}
 
-          {/* Text Processing Status */}
-          {uploadedBookId && (
-            <TextProcessingStatus 
-              bookId={uploadedBookId} 
-              onComplete={() => {
-                toast({
-                  title: "Text Processing Complete",
-                  description: "Your book is now ready for AI features like summaries and chat!",
-                });
-              }}
-            />
-          )}
-
           <div className="flex justify-end gap-3 pt-4">
-            <Button type="button" variant="outline" onClick={handleClose} disabled={isSubmitting || isExtractingText}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting || isExtractingText}>
               Cancel
             </Button>
             <Button type="submit" disabled={isSubmitting || isExtractingText}>
               {isSubmitting ? 'Uploading...' : 'Upload Book'}
             </Button>
-            {uploadedBookId && !isExtractingText && (
-              <Button type="button" onClick={handleSuccess} className="ml-2">
-                Done
-              </Button>
-            )}
           </div>
         </form>
       </DialogContent>

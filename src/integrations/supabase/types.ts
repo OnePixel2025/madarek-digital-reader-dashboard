@@ -414,45 +414,6 @@ export type Database = {
           },
         ]
       }
-      text_processing_jobs: {
-        Row: {
-          book_id: string
-          completed_at: string | null
-          created_at: string
-          error_message: string | null
-          id: string
-          processed_chunks: number
-          progress: number
-          status: string
-          total_chunks: number | null
-          updated_at: string
-        }
-        Insert: {
-          book_id: string
-          completed_at?: string | null
-          created_at?: string
-          error_message?: string | null
-          id?: string
-          processed_chunks?: number
-          progress?: number
-          status?: string
-          total_chunks?: number | null
-          updated_at?: string
-        }
-        Update: {
-          book_id?: string
-          completed_at?: string | null
-          created_at?: string
-          error_message?: string | null
-          id?: string
-          processed_chunks?: number
-          progress?: number
-          status?: string
-          total_chunks?: number | null
-          updated_at?: string
-        }
-        Relationships: []
-      }
       user_favorites: {
         Row: {
           book_id: string

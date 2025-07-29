@@ -544,7 +544,7 @@ export const ReadBook = () => {
               try {
                 // Get PDF page
                 const page = await pdf.getPage(pageNum);
-                const viewport = page.getViewport({ scale: 2 }); // High quality
+                const viewport = page.getViewport({ scale: 3 }); // High quality
                 
                 // Create canvas for rendering
                 const canvas = document.createElement('canvas');
@@ -635,7 +635,7 @@ export const ReadBook = () => {
       
       // Get book language for processing
       const selectedBook = books.find(book => book.id === bookId);
-      const language = selectedBook.language === "Arabic" ? "ara" : 'eng';
+      const language = selectedBook?.language || 'eng';
 
       // Process text with LLM for cleaning and formatting
       const { data: processData, error: processError } = await supabase.functions.invoke('process-extracted-text', {
