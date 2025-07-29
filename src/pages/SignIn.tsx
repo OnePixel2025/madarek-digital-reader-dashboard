@@ -15,7 +15,7 @@ export const SignInPage = () => {
             <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center">
               <BookOpen className="w-6 h-6 text-white" />
             </div>
-            <span className="text-2xl font-bold text-stone-800">Madarek</span>
+            <span className="text-2xl font-bold text-stone-800">Madarik</span>
           </div>
 
           {/* Welcome text */}
@@ -63,7 +63,7 @@ export const SignInPage = () => {
         <div className="absolute bottom-10 left-10 right-10">
           <blockquote className="text-white">
             <p className="text-xl font-medium">
-              "Knowledge is power, and Madarek makes it accessible to everyone."
+              "Knowledge is power, and Madarik makes it accessible to everyone."
             </p>
             <footer className="mt-4">
               <p className="text-emerald-100">— Sudanese Proverb</p>

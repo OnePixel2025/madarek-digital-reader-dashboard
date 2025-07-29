@@ -40,7 +40,7 @@ export const Sidebar = () => {
             <BookOpen className="w-5 h-5 text-white" />
           </div>
           {!collapsed && (
-            <span className="text-xl font-bold text-stone-800">Madarek</span>
+            <span className="text-xl font-bold text-stone-800">Madarik</span>
           )}
         </div>
       </div>

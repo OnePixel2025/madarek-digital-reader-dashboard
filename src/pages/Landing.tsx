@@ -134,10 +134,10 @@ export const Landing = () => {
             <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center">
               <BookOpen className="w-5 h-5 text-white" />
             </div>
-            <span className="text-xl font-bold text-stone-800">Madarek</span>
+            <span className="text-xl font-bold text-stone-800">Madarik</span>
           </div>
           <p className="text-stone-600">
-            © 2024 Madarek. Empowering minds through digital learning.
+            © 2024 Madarik. Empowering minds through digital learning.
           </p>
         </div>
       </footer>
