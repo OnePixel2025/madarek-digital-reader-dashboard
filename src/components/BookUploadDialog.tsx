@@ -324,13 +324,27 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
 
           if (processError) {
             console.error('Error starting text processing:', processError);
+            toast({
+              title: "AI Processing Failed",
+              description: "Text extraction completed but AI processing failed to start.",
+              variant: "destructive",
+            });
             setExtractionStatus('Text extraction completed! AI processing failed to start.');
           } else {
             console.log('Background text processing started:', processResponse);
             setExtractionStatus('Text extraction completed! AI processing started in background.');
+            toast({
+              title: "Processing Started",
+              description: "Text extraction completed! AI processing is running in background.",
+            });
           }
         } catch (processError) {
           console.error('Failed to start background processing:', processError);
+          toast({
+            title: "AI Processing Failed",
+            description: "Text extraction completed but AI processing failed to start.",
+            variant: "destructive",
+          });
           setExtractionStatus('Text extraction completed! AI processing failed to start.');
         }
         
@@ -594,7 +608,7 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
           )}
 
           {/* Text Processing Status */}
-          {uploadedBookId && (
+          {uploadedBookId && !isExtractingText && (
             <TextProcessingStatus 
               bookId={uploadedBookId} 
               onComplete={() => {
@@ -602,20 +616,32 @@ export const BookUploadDialog = ({ open, onClose, onSuccess }: BookUploadDialogP
                   title: "Text Processing Complete",
                   description: "Your book is now ready for AI features like summaries and chat!",
                 });
+                // Auto-close dialog after successful processing
+                setTimeout(() => {
+                  handleSuccess();
+                }, 2000);
               }}
             />
           )}
 
           <div className="flex justify-end gap-3 pt-4">
-            <Button type="button" variant="outline" onClick={handleClose} disabled={isSubmitting || isExtractingText}>
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={handleClose} 
+              disabled={isSubmitting || isExtractingText}
+            >
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting || isExtractingText}>
+            <Button 
+              type="submit" 
+              disabled={isSubmitting || isExtractingText || !!uploadedBookId}
+            >
               {isSubmitting ? 'Uploading...' : 'Upload Book'}
             </Button>
             {uploadedBookId && !isExtractingText && (
-              <Button type="button" onClick={handleSuccess} className="ml-2">
-                Done
+              <Button type="button" onClick={handleSuccess}>
+                Close
               </Button>
             )}
           </div>
