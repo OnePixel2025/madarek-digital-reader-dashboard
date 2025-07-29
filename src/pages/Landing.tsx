@@ -50,46 +50,6 @@ export const Landing = () => {
         </Link>
       </section>
 
-      {/* About Us Section */}
-      <section className="bg-white py-20">
-        <div className="container mx-auto px-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-          <div>
-            <h2 className="text-4xl font-bold text-stone-800 mb-6">About Us</h2>
-            <p className="text-lg text-stone-600 mb-6">
-              We are a passionate team of Sudanese undergraduate students committed to preserving 
-              and promoting our rich cultural heritage through innovative technology solutions.
-            </p>
-            <p className="text-lg text-stone-600 mb-6">
-              Our mission extends beyond just creating a digital library - we aim to protect 
-              and celebrate Sudanese culture, ensuring that future generations have access to 
-              our invaluable literary and educational treasures.
-            </p>
-            <p className="text-lg text-stone-600 mb-8">
-              As participants in the prestigious <span className="font-semibold text-emerald-600">"Code for Sudan"</span> competition, 
-              we are dedicated to leveraging our technical skills to fulfill this meaningful goal 
-              and make a lasting impact on our community.
-            </p>
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center">
-                <Users className="w-6 h-6 text-emerald-600" />
-              </div>
-              <div>
-                <p className="font-semibold text-stone-800">Student-Led Initiative</p>
-                <p className="text-stone-600">Driven by passion for cultural preservation</p>
-              </div>
-            </div>
-          </div>
-          <div className="lg:order-last">
-            <img 
-              src={aboutUsImage} 
-              alt="Sudanese students working on cultural preservation technology" 
-              className="rounded-2xl shadow-xl w-full h-auto object-cover"
-            />
-          </div>
-        </div>
-        </div>
-      </section>
 
       {/* Features Section */}
       <section className="container mx-auto px-6 py-20">
